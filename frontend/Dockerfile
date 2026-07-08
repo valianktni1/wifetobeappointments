@@ -8,8 +8,8 @@ ARG REACT_APP_BACKEND_URL=""
 ENV REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL}
 ENV ENABLE_HEALTH_CHECK=false
 
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --network-timeout 600000
+COPY package.json yarn.lock* ./
+RUN yarn install --network-timeout 600000
 
 COPY . .
 RUN yarn build
