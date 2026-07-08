@@ -1,0 +1,29 @@
+{
+  "summary": "Retest of iteration_6 HIGH bugs. All 3 previously-broken items now PASS: (1) dedicated 'Close' button with data-testid='close-booking-modal' is present and closes the modal without changing status; (2) actions grid in Bookings.jsx is now 'grid-cols-1 sm:grid-cols-3' so Confirm/Complete/Cancel stack vertically on 390px (each ~276px wide, distinct y positions); (3) backdrop click closes the modal — Modal in ui.jsx now attaches onClick with e.target===e.currentTarget guard to BOTH the outer fixed-inset container and the min-h-full flex wrapper, and the backdrop <div> is pointer-events-none so clicks pass through to the wrapper. Verified backdrop-close on desktop (click at 400,100 and 200,60 above card) and on mobile (click at 195,149 above card) — modal dismisses and booking status remains PENDING. X, Escape, Close-button, click-inside-card behavior all correct. Body scroll lock (document.body.style.overflow='hidden' while open, '' after close) works. Regression PASS: resched-date/resched-time/save-resched + confirm/complete/cancel-booking testids all render inside modal; StatusBadge shows Pending. Other modals: admin-modal (Add Admin at /admin/admins) closes via Escape. type-modal (add-type at /admin/appointments) — the add-type button was not visible on this run so type-modal was not exercised in this iteration (see note). Mobile 390px: no horizontal overflow on /admin/bookings or /admin/account. Public booking flow was not re-run (still working per iteration_6).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Booking modal overlay containment", "issues": ["The Modal's outer 'fixed inset-0' element is contained inside the admin main content area (bounding rect on desktop x=296,y=40,w=1584,h=1388 rather than full 1920x1080). This is because an ancestor in AdminLayout has a transform/filter/backdrop-filter that creates a new containing block for fixed descendants. Visually the dimmed backdrop still appears full-screen via the pointer-events-none inner backdrop <div>, but the outer overlay does NOT cover the sidebar — users can still click sidebar nav items while a modal is open. Not blocking the current review, but worth cleaning up (e.g., portal the Modal to document.body or remove the offending transform on the ancestor)."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Nice-to-have) Portal Modal via createPortal to document.body OR remove transform/backdrop-filter from AdminLayout ancestors so 'fixed inset-0' truly covers the viewport and the sidebar becomes inert while a modal is open.",
+    "(Verify) Ensure the [data-testid=\"add-type\"] button renders for superadmin on /admin/appointments — during this run its locator count was 0 so the type-modal close-methods regression was skipped. If it is intentionally hidden for superadmin, ignore; otherwise investigate rendering condition."
+  ],
+  "critical_code_review_comments": [
+    "Modal fix in ui.jsx is correct: onClick with (e.target===e.currentTarget) guard on both the outer 'fixed inset-0 overflow-y-auto' container AND the 'relative min-h-full flex …' wrapper, combined with pointer-events-none on the visual backdrop, is a clean pattern. Click on the card body does not bubble to either guarded element because inner children are hit, and the guard prevents accidental close.",
+    "Bookings.jsx actions grid now 'grid grid-cols-1 sm:grid-cols-3 gap-3' — matches spec. Dedicated close button `<button data-testid=\"close-booking-modal\" onClick={() => setActive(null)}>Close</button>` is full-width below the actions row.",
+    "Consider using ReactDOM.createPortal for Modal to guarantee it escapes any ancestor stacking/transform context."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100% on the retest scope (all 3 previously-broken HIGH bugs fixed; 1 minor observation about modal containment)"},
+  "test_credentials": "superadmin@wifetobe.co.uk / WifeToBe2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Reused seed booking WTB-6WKH65AC (still PENDING). Status was NOT changed during this iteration — only close-without-status-change flows were exercised.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 3 HIGH bugs from iteration_6 are fixed. Booking WTB-6WKH65AC remains PENDING and reusable. If further work is needed on the Modal, consider the containment issue: the fixed inset-0 outer is captured by an AdminLayout ancestor with transform, so mouse clicks at screen edges (e.g., (5,5) top-left corner) land on the sidebar rather than the modal overlay. This does not break the review-request's backdrop-close contract (near-top-left of the CARD works) but is a latent UX bug — clicking sidebar Nav links while a modal is open can navigate away. Also, type-modal (add-type) was not exercised here because the button was absent on /admin/appointments during this run; verify next iteration.",
+  "rca of the issue": "Prior iteration failures were caused by: (a) missing close-booking-modal button in Bookings.jsx, (b) actions grid hard-coded to grid-cols-3 (no responsive stacking), and (c) backdrop close inoperative because the visible-but-transparent backdrop <div> was overlaid by the sibling flex wrapper which had no onClick handler, so pointer events on empty space never reached the backdrop. All three are resolved: onClose is now on both wrappers with an e.target===e.currentTarget guard and the backdrop <div> is pointer-events-none; Bookings.jsx has the Close button and the responsive actions grid."
+}

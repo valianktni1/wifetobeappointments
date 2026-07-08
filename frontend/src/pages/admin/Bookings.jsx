@@ -112,11 +112,12 @@ export default function Bookings() {
               <button className="btn-wtb btn-ghost-wtb mt-4 w-full" onClick={saveResched} data-testid="save-resched">Save Changes</button>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 border-t pt-5" style={{ borderColor: "var(--line)" }}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t pt-5" style={{ borderColor: "var(--line)" }}>
               <button className="btn-wtb btn-gold" onClick={() => setStatus(active, "confirmed")} data-testid="confirm-booking">Confirm</button>
               <button className="btn-wtb btn-ghost-wtb" onClick={() => setStatus(active, "completed")} data-testid="complete-booking">Complete</button>
               <button className="btn-wtb" style={{ borderColor: "#9a4a3f", color: "#9a4a3f" }} onClick={() => setStatus(active, "cancelled")} data-testid="cancel-booking">Cancel</button>
             </div>
+            <button className="btn-wtb btn-ghost-wtb w-full" onClick={() => setActive(null)} data-testid="close-booking-modal">Close</button>
           </div>
         )}
       </Modal>

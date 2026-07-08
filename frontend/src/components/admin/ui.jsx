@@ -49,9 +49,11 @@ export function Modal({ open, onClose, title, children, testid }) {
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" data-testid={testid}>
-      <div className="fixed inset-0" style={{ background: "rgba(42,37,33,.55)", backdropFilter: "blur(2px)" }} onClick={onClose} />
-      <div className="relative min-h-full flex items-start sm:items-center justify-center p-3 sm:p-6">
+    <div className="fixed inset-0 z-50 overflow-y-auto" data-testid={testid}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="fixed inset-0 pointer-events-none" style={{ background: "rgba(42,37,33,.55)", backdropFilter: "blur(2px)" }} />
+      <div className="relative min-h-full flex items-start sm:items-center justify-center p-3 sm:p-6"
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <div className="relative card-wtb w-full max-w-lg my-6 sm:my-10 reveal-up">
           <div className="sticky top-0 z-10 flex items-center justify-between px-5 sm:px-8 py-4 border-b"
             style={{ borderColor: "var(--line)", background: "#fff" }}>
