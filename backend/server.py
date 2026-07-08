@@ -653,6 +653,10 @@ async def write_settings(body: SettingsIn, user: dict = Depends(require_superadm
 # ------------------------------------------------------------------ seed + startup
 async def seed():
     await db.users.create_index("email", unique=True)
+    await db.bookings.create_index([("shop_id", 1), ("date", 1), ("status", 1)])
+    await db.bookings.create_index("reference", unique=True)
+    await db.blocked_dates.create_index([("shop_id", 1), ("date", 1)])
+    await db.appointment_types.create_index("shop_id")
     # superadmin
     email = os.environ["SUPERADMIN_EMAIL"].lower()
     existing = await db.users.find_one({"email": email})
