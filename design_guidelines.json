@@ -1,0 +1,98 @@
+{
+  "theme": "light",
+  "archetype": "1 (Organic & Earthy / Warm) and 5 (Luxury)",
+  "colors": {
+    "background": {
+      "primary": "#FBF8F3",
+      "secondary": "#F4ECE3",
+      "blush": "#EADBD0",
+      "blushDeep": "#E2C9BC",
+      "champagne": "#E7D4B8",
+      "white": "#ffffff"
+    },
+    "text": {
+      "primary": "#2A2521",
+      "secondary": "#3A332D",
+      "muted": "#7A7066"
+    },
+    "accent": {
+      "gold": "#B0904F",
+      "goldDeep": "#977937"
+    },
+    "border": {
+      "line": "#E6DACB"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "'Cormorant Garamond', serif",
+      "body": "'Jost', sans-serif",
+      "script": "'Pinyon Script', cursive"
+    },
+    "scale": {
+      "h1": "text-5xl sm:text-6xl font-light tracking-tight",
+      "h2": "text-4xl sm:text-5xl font-light tracking-tight",
+      "h3": "text-2xl sm:text-3xl font-medium",
+      "h4": "text-xl font-medium",
+      "body": "text-base font-light leading-relaxed",
+      "eyebrow": "text-xs sm:text-sm uppercase tracking-[0.42em] font-medium"
+    }
+  },
+  "shadows": {
+    "luxury": "0 18px 50px -22px rgba(74, 58, 40, 0.45)"
+  },
+  "components": {
+    "button": {
+      "base": "uppercase tracking-[0.22em] font-medium px-8 py-3 transition-colors duration-300 inline-flex items-center justify-center",
+      "outline": "border border-[#2A2521] text-[#2A2521] hover:bg-[#2A2521] hover:text-[#FBF8F3]",
+      "gold": "bg-[#B0904F] text-white hover:bg-[#977937]"
+    },
+    "divider": {
+      "goldRule": "h-[1px] w-[64px] bg-[#B0904F] my-6"
+    },
+    "card": {
+      "base": "bg-white p-8 border border-[#E6DACB] shadow-[0_18px_50px_-22px_rgba(74,58,40,0.45)]"
+    },
+    "image": {
+      "framed": "border-4 border-[#F4ECE3] p-2 bg-white"
+    },
+    "input": {
+      "base": "w-full border-b border-[#E6DACB] bg-transparent pb-2 text-[#2A2521] placeholder-[#7A7066] focus:border-[#B0904F] focus:outline-none transition-colors rounded-none font-light"
+    }
+  },
+  "layout": {
+    "spacing": "generous, airy, using p-8 to p-24",
+    "sections": "alternating bands of #FBF8F3, #F4ECE3, and #E7D4B8"
+  },
+  "images": {
+    "hero": [
+      {
+        "url": "https://images.unsplash.com/photo-1780541952163-d9ad11e8ce82?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Njl8MHwxfHNlYXJjaHwyfHxsdXh1cnklMjB3ZWRkaW5nJTIwZHJlc3MlMjBib3V0aXF1ZXxlbnwwfHx8fDE3ODM1MDkyMDd8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Bride in elegant gown approaches a luxury boutique",
+        "category": "hero"
+      }
+    ],
+    "fittings": [
+      {
+        "url": "https://images.unsplash.com/photo-1521467752200-3bccf80f16ed?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNDR8MHwxfHNlYXJjaHwyfHxicmlkZSUyMHdlZGRpbmclMjBkcmVzcyUyMGZpdHRpbmd8ZW58MHx8fHwxNzgzNTA5MjA3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Woman wearing white sheer lace wedding gown",
+        "category": "feature"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1600287792237-3f66db635a73?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNDR8MHwxfHNlYXJjaHwxfHxicmlkZSUyMHdlZGRpbmclMjBkcmVzcyUyMGZpdHRpbmd8ZW58MHx8fHwxNzgzNTA5MjA3fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Detail of bride in wedding dress",
+        "category": "feature"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Ensure 'Cormorant Garamond', 'Jost', and 'Pinyon Script' are loaded via Google Fonts.",
+    "Use light theme exclusively; do not implement dark mode.",
+    "Apply the background color #FBF8F3 (--ivory) as the default page background.",
+    "Follow exact letter-spacing constraints: uppercase eyebrow text gets 0.42em tracking, buttons get 0.22em.",
+    "Implement the 64px wide gold horizontal divider under major headings.",
+    "Use Shadcn UI components but override styling to match this organic, luxury aesthetic (remove standard rounded corners, apply elegant borders, use generous padding).",
+    "All interactive and key informational elements MUST include a 'data-testid' attribute.",
+    "For the admin panel, keep the luxury aesthetic but prioritize density and functionality while respecting the color palette."
+  ]
+}
