@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Eyebrow, GoldRule } from "@/components/Brand";
 
@@ -48,7 +49,7 @@ export function Modal({ open, onClose, title, children, testid }) {
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
   }, [open, onClose]);
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 overflow-y-auto" data-testid={testid}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="fixed inset-0 pointer-events-none" style={{ background: "rgba(42,37,33,.55)", backdropFilter: "blur(2px)" }} />
@@ -65,7 +66,8 @@ export function Modal({ open, onClose, title, children, testid }) {
           <div className="px-5 sm:px-8 py-6">{children}</div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
