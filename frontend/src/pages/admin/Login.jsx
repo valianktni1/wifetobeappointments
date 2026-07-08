@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth, apiErr } from "@/context/AuthContext";
-import { Wordmark, Eyebrow, GoldRule } from "@/components/Brand";
+import { Wordmark, Eyebrow, GoldRule, DesignerCredit } from "@/components/Brand";
 import { Field } from "@/components/admin/ui";
 
 export default function Login() {
@@ -80,6 +80,7 @@ export default function Login() {
             </form>
           )}
         </div>
+        <div className="mt-10"><DesignerCredit /></div>
       </div>
     </div>
   );

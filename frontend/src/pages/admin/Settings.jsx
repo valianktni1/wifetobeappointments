@@ -29,6 +29,8 @@ export default function Settings() {
               onChange={(e) => set({ from_name: e.target.value })} /></Field>
             <Field label="Business Email"><input className="input-wtb" type="email" value={s.business_email || ""} data-testid="set-business-email"
               onChange={(e) => set({ business_email: e.target.value })} placeholder="hello@wifetobe.co.uk" /></Field>
+            <Field label="Public App URL (used in email links)"><input className="input-wtb" value={s.public_url || ""} data-testid="set-public-url"
+              onChange={(e) => set({ public_url: e.target.value })} placeholder="https://appointments.wifetobe.co.uk" /></Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="SMTP Host"><input className="input-wtb" value={s.smtp_host || ""} data-testid="set-smtp-host"
                 onChange={(e) => set({ smtp_host: e.target.value })} placeholder="smtp.gmail.com" /></Field>
@@ -50,6 +52,7 @@ export default function Settings() {
               { k: "notify_customer_on_booking", l: "Email customer on new booking request" },
               { k: "notify_shop_on_booking", l: "Email the boutique on new booking request" },
               { k: "notify_on_confirm", l: "Email customer when a booking is confirmed" },
+              { k: "notify_reminder", l: "Send a reminder email 24h before the appointment" },
             ].map((n) => (
               <div key={n.k} className="flex items-center justify-between gap-4">
                 <span className="font-sans-j text-sm">{n.l}</span>

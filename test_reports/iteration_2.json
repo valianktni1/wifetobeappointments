@@ -1,0 +1,37 @@
+{
+  "summary": "Backend + frontend testing of NEW self-service manage-booking features and settings additions. Backend: 12/12 new pytest tests in test_manage_and_settings.py PASSED - GET /api/public/bookings/{ref} (200 + 404), POST reschedule (200 valid slot / 404 nonexistent / 409 occupied / OK own-current-slot via exclude_ref), POST cancel (200 + slot frees + 400 on already-cancelled + 400 subsequent reschedule + 404 nonexistent), GET/PUT /api/settings persist public_url + notify_reminder, regression: login + shops + Warrington hours (Tue 11:00, Sat 10:00, Mon closed). Frontend: end-to-end booking creation, confirmation shows manage-link -> /booking/{ref}, manage page loads details, reschedule flow (date -> reslot buttons -> success toast -> details update to new date/time with pending status), cancel flow (confirm dialog -> status becomes Cancelled), bad reference /booking/NOPE shows 'Booking Not Found', title = 'Wife To Be | Book Your Appointment', DesignerCredit ('Site Designed and Hosted By Weddings By Mark') present on '/', confirmation, manage page, /admin/login, admin dashboard, and admin settings; NO #emergent-badge on any page tested. Settings page has set-public-url, toggle-notify_reminder, save-settings testids.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/settings", "issue": "get_settings() only inserts default keys if the settings doc is missing entirely. For an existing settings doc from a prior deploy that pre-dates public_url/notify_reminder, those keys will NOT be returned in GET until a PUT sets them. Recommend merging missing default keys into the returned dict (or upserting them once) so brand-new fields show up on GET without requiring a manual PUT."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_manage_and_settings.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results_iter2.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: In get_settings(), backfill missing default keys (public_url, notify_reminder, from_name, etc.) on an existing doc so GET always returns the full schema. Currently a fresh install works; only pre-existing docs from earlier iterations skip these keys until a PUT."
+  ],
+  "critical_code_review_comments": [
+    "reminder_loop() uses datetime.now() (local tz) mixed with UTC elsewhere; if the container tz differs from customers' tz, the 23-25h window may drift. Consider standardising on UTC or on Europe/London.",
+    "reminder_loop() runs every 30 minutes with a 2h window - a booking could receive two reminders if it lingers >30 min in the window before reminder_sent flips. Actual flip happens in the same iteration so this is fine, but if send_email fails the flag is still set (reminder_sent=True) - a failed send won't retry. Consider only setting reminder_sent when send_email returns True.",
+    "public_reschedule and public_cancel are unauthenticated and rely solely on knowing the reference. WTB-XXXXXXXX is 8 base32 chars (~40 bits) - guessable over time. Consider rate limiting or a signed token in the manage link.",
+    "manage_link() adds 'View or reschedule' text to emails only if public_url is set; if unset, the email has no link. Consider a fallback message or making it required in settings validation."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_manage_and_settings.py"
+  ],
+  "success_rate": {"backend": "100% (12/12 new + prior 30 unchanged)", "frontend": "100%"},
+  "test_credentials": "Superadmin: superadmin@wifetobe.co.uk / WifeToBe2026!",
+  "seed_data_creation": "6 TEST_ bookings created (WTB-... refs beginning with TEST_Mgr_*/TEST_UI_*). Cleanup fixture cancels them via admin PATCH; one UI booking also cancelled through the manage-page cancel flow.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Two backend test files now: /app/backend/tests/backend_test.py (iter1, 30 tests) and /app/backend/tests/test_manage_and_settings.py (iter2, 12 tests). pytest.ini uses xdist loadscope 2 workers; run either with '-p xdist -n 0' to disable parallel or default for parallel. Manage-page testids: manage-details, start-reschedule, cancel-my-booking, reschedule-date, reslot-{HH:MM}, new-booking-link. Confirmation manage-link testid = manage-link. Settings testids: set-public-url, toggle-notify_reminder, save-settings. Everything green - only enhancement suggested is backfilling defaults in get_settings()."
+}

@@ -6,7 +6,7 @@ import {
 import { ChevronLeft, ChevronRight, MapPin, Phone, Clock, Check } from "lucide-react";
 import { toast } from "sonner";
 import api, { apiErr } from "@/lib/api";
-import { Wordmark, Eyebrow, GoldRule } from "@/components/Brand";
+import { Wordmark, Eyebrow, GoldRule, DesignerCredit } from "@/components/Brand";
 
 const HERO = "https://images.unsplash.com/photo-1585241920473-b472eb9ffbae?q=75&w=1600&auto=format&fit=crop";
 
@@ -159,8 +159,10 @@ export default function Booking() {
               <Row k="Status" v="Pending confirmation" />
             </div>
             <button className="btn-wtb btn-gold" onClick={() => window.location.reload()} data-testid="book-another">Book Another</button>
+            <a href={`/booking/${confirmed.reference}`} className="block mt-5 eyebrow hover:opacity-70" style={{ fontSize: "0.6rem", color: "var(--gold-deep)" }} data-testid="manage-link">Manage or reschedule this booking →</a>
           </div>
         </div>
+        <DesignerCredit />
       </div>
     );
   }
@@ -322,6 +324,7 @@ export default function Booking() {
         <Wordmark size="text-3xl" />
         <p className="eyebrow mt-3" style={{ fontSize: "0.58rem" }}>Warrington · Runcorn · Widnes · St Helens · Liverpool</p>
       </footer>
+      <DesignerCredit />
     </div>
   );
 }

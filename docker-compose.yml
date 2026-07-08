@@ -1,0 +1,70 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: wtb-mongo
+    restart: unless-stopped
+    command: ["--quiet"]
+    volumes:
+      - /mnt/apps/wifetibeappointments/appdata:/data/db
+    networks:
+      - wtb
+
+  backend:
+    build:
+      context: ./backend
+    container_name: wtb-backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URL: "mongodb://mongo:27017"
+      DB_NAME: "wifetobe"
+      CORS_ORIGINS: "*"
+      JWT_SECRET: "f78e2609e795aa6b990cbc8fa2bd074af5ae81e992e45f28a0623c19ba532179"
+      SUPERADMIN_EMAIL: "superadmin@wifetobe.co.uk"
+      SUPERADMIN_PASSWORD: "ChangeMeNow2026!"
+      SUPERADMIN_NAME: "Superadmin"
+    volumes:
+      - /mnt/photographers_data/wifetobeappointments/saveddata:/app/saveddata
+    networks:
+      - wtb
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_BACKEND_URL: ""
+    container_name: wtb-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "30039:80"
+    networks:
+      - wtb
+
+  # Nightly backup of the database into your photographers_data/saveddata mount
+  backup:
+    image: mongo:7
+    container_name: wtb-backup
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        while true; do
+          mongodump --uri="mongodb://mongo:27017" --db=wifetobe --gzip
+          --archive=/backup/wifetobe-$(date +%Y%m%d-%H%M%S).gz;
+          find /backup -name 'wifetobe-*.gz' -mtime +30 -delete;
+          sleep 86400;
+        done
+    volumes:
+      - /mnt/photographers_data/wifetobeappointments/saveddata:/backup
+    networks:
+      - wtb
+
+networks:
+  wtb:
+    driver: bridge

@@ -2,8 +2,7 @@ import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { LayoutDashboard, CalendarDays, Clock, Tags, Users, Settings as Cog, UserCircle, LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { Wordmark } from "@/components/Brand";
-
+import { Wordmark, DesignerCredit } from "@/components/Brand";
 const NAV = [
   { to: "/admin", icon: LayoutDashboard, label: "Dashboard", end: true },
   { to: "/admin/bookings", icon: CalendarDays, label: "Bookings" },
@@ -67,6 +66,7 @@ export default function AdminLayout() {
           ))}
         </div>
         <Outlet />
+        <div className="mt-12"><DesignerCredit /></div>
       </main>
     </div>
   );

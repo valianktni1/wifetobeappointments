@@ -6,6 +6,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import logging
+import asyncio
 import smtplib
 from datetime import datetime, timezone, timedelta, date, time as dtime
 from email.message import EmailMessage
@@ -122,12 +123,19 @@ async def get_settings() -> dict:
             "smtp_user": "",
             "smtp_password": "",
             "from_name": "Wife To Be",
+            "public_url": "",
             "notify_customer_on_booking": False,
             "notify_shop_on_booking": False,
             "notify_on_confirm": False,
+            "notify_reminder": False,
         }
         await db.settings.insert_one(s)
     return s
+
+
+def manage_link(settings: dict, ref: str) -> str:
+    base = (settings.get("public_url") or "").rstrip("/")
+    return f"\n\nView or reschedule your appointment: {base}/booking/{ref}" if base else ""
 
 
 def send_email(settings: dict, to: str, subject: str, body: str) -> bool:
@@ -231,9 +239,11 @@ class SettingsIn(BaseModel):
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
     from_name: Optional[str] = None
+    public_url: Optional[str] = None
     notify_customer_on_booking: Optional[bool] = None
     notify_shop_on_booking: Optional[bool] = None
     notify_on_confirm: Optional[bool] = None
+    notify_reminder: Optional[bool] = None
 
 
 # ------------------------------------------------------------------ auth routes
@@ -474,8 +484,7 @@ def _to_hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
-@api.get("/public/slots")
-async def public_slots(shop_id: str, date: str, duration: int):
+async def _compute_slots(shop_id: str, date: str, duration: int, exclude_ref: Optional[str] = None):
     if duration not in (30, 60, 90, 120):
         raise HTTPException(status_code=400, detail="Invalid duration")
     try:
@@ -490,26 +499,28 @@ async def public_slots(shop_id: str, date: str, duration: int):
     avail = await db.availability.find_one({"shop_id": shop_id})
     if not avail:
         return {"slots": []}
-    weekday = str(d.weekday())  # Mon=0
-    day = avail.get("hours", {}).get(weekday)
+    day = avail.get("hours", {}).get(str(d.weekday()))  # Mon=0
     if not day or day.get("closed"):
         return {"slots": [], "reason": "closed"}
     step = avail.get("slot_step", 30)
     open_m, close_m = _to_min(day["open"]), _to_min(day["close"])
-    # existing bookings for this shop/date (not cancelled)
-    existing = await db.bookings.find(
-        {"shop_id": shop_id, "date": date, "status": {"$ne": "cancelled"}}
-    ).to_list(200)
+    q = {"shop_id": shop_id, "date": date, "status": {"$ne": "cancelled"}}
+    if exclude_ref:
+        q["reference"] = {"$ne": exclude_ref}
+    existing = await db.bookings.find(q).to_list(200)
     busy = [(_to_min(b["start_time"]), _to_min(b["start_time"]) + b["duration"]) for b in existing]
     slots = []
     t = open_m
     while t + duration <= close_m:
-        s_start, s_end = t, t + duration
-        overlap = any(s_start < be and s_end > bs for bs, be in busy)
-        if not overlap:
+        if not any(t < be and (t + duration) > bs for bs, be in busy):
             slots.append(_to_hhmm(t))
         t += step
     return {"slots": slots}
+
+
+@api.get("/public/slots")
+async def public_slots(shop_id: str, date: str, duration: int):
+    return await _compute_slots(shop_id, date, duration)
 
 
 # ------------------------------------------------------------------ bookings
@@ -523,7 +534,7 @@ async def create_booking(body: BookingIn):
         raise HTTPException(status_code=404, detail="Appointment type not found")
     duration = atype["duration"]
     # validate slot still available
-    avail = await public_slots(shop_id=body.shop_id, date=body.date, duration=duration)
+    avail = await _compute_slots(body.shop_id, body.date, duration)
     if body.start_time not in avail.get("slots", []):
         raise HTTPException(status_code=409, detail="That time slot is no longer available")
     ref = "WTB-" + base64.b32encode(os.urandom(5)).decode().rstrip("=")[:8]
@@ -542,6 +553,7 @@ async def create_booking(body: BookingIn):
         "notes": body.notes,
         "admin_notes": "",
         "status": "pending",
+        "reminder_sent": False,
         "created_at": now_utc().isoformat(),
     }
     res = await db.bookings.insert_one(doc)
@@ -552,11 +564,43 @@ async def create_booking(body: BookingIn):
     if settings.get("notify_customer_on_booking"):
         send_email(settings, doc["customer_email"], "Your Wife To Be appointment request",
                    f"Dear {doc['customer_name']},\n\nWe have received your request for a {atype['name']} at our {shop['name']} boutique on {when}. "
-                   f"Your reference is {ref}. We will confirm your appointment shortly.\n\nWith love,\nWife To Be")
+                   f"Your reference is {ref}. We will confirm your appointment shortly.{manage_link(settings, ref)}\n\nWith love,\nWife To Be")
     if settings.get("notify_shop_on_booking") and settings.get("business_email"):
         send_email(settings, settings["business_email"], f"New booking request — {shop['name']}",
                    f"{doc['customer_name']} ({doc['customer_email']}, {doc['customer_phone']}) requested a {atype['name']} on {when}. Ref {ref}.")
     return clean(doc)
+
+
+class PublicReschedIn(BaseModel):
+    date: str
+    start_time: str
+
+
+@api.post("/public/bookings/{reference}/reschedule")
+async def public_reschedule(reference: str, body: PublicReschedIn):
+    b = await db.bookings.find_one({"reference": reference})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if b["status"] in ("cancelled", "completed"):
+        raise HTTPException(status_code=400, detail="This booking can no longer be changed")
+    avail = await _compute_slots(b["shop_id"], body.date, b["duration"], exclude_ref=reference)
+    if body.start_time not in avail.get("slots", []):
+        raise HTTPException(status_code=409, detail="That time slot is no longer available")
+    await db.bookings.update_one({"_id": b["_id"]},
+                                 {"$set": {"date": body.date, "start_time": body.start_time, "status": "pending", "reminder_sent": False}})
+    doc = await db.bookings.find_one({"_id": b["_id"]})
+    return clean(doc)
+
+
+@api.post("/public/bookings/{reference}/cancel")
+async def public_cancel(reference: str):
+    b = await db.bookings.find_one({"reference": reference})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if b["status"] in ("cancelled", "completed"):
+        raise HTTPException(status_code=400, detail="This booking can no longer be changed")
+    await db.bookings.update_one({"_id": b["_id"]}, {"$set": {"status": "cancelled"}})
+    return {"ok": True}
 
 
 @api.get("/public/bookings/{reference}")
@@ -609,7 +653,7 @@ async def update_booking(booking_id: str, body: BookingUpdateIn, user: dict = De
         if settings.get("notify_on_confirm"):
             send_email(settings, doc["customer_email"], "Your Wife To Be appointment is confirmed",
                        f"Dear {doc['customer_name']},\n\nYour {doc['appointment_type_name']} at our {doc['shop_name']} boutique on "
-                       f"{doc['date']} at {doc['start_time']} is now confirmed. Reference {doc['reference']}.\n\nWe can't wait to see you.\nWife To Be")
+                       f"{doc['date']} at {doc['start_time']} is now confirmed. Reference {doc['reference']}.{manage_link(settings, doc['reference'])}\n\nWe can't wait to see you.\nWife To Be")
     return clean(doc)
 
 
@@ -731,9 +775,35 @@ async def seed():
         logger.info("Seeded shops, availability and appointment types")
 
 
+async def reminder_loop():
+    while True:
+        try:
+            settings = await get_settings()
+            if settings.get("notify_reminder") and settings.get("smtp_host"):
+                now = datetime.now()
+                lo, hi = now + timedelta(hours=23), now + timedelta(hours=25)
+                candidates = await db.bookings.find(
+                    {"status": "confirmed", "reminder_sent": {"$ne": True}}
+                ).to_list(500)
+                for b in candidates:
+                    try:
+                        dt = datetime.strptime(f"{b['date']} {b['start_time']}", "%Y-%m-%d %H:%M")
+                    except Exception:
+                        continue
+                    if lo <= dt <= hi:
+                        send_email(settings, b["customer_email"], "Your Wife To Be appointment is tomorrow",
+                                   f"Dear {b['customer_name']},\n\nA gentle reminder of your {b['appointment_type_name']} at our {b['shop_name']} boutique "
+                                   f"tomorrow, {b['date']} at {b['start_time']}. Reference {b['reference']}.{manage_link(settings, b['reference'])}\n\nWe look forward to seeing you.\nWife To Be")
+                        await db.bookings.update_one({"_id": b["_id"]}, {"$set": {"reminder_sent": True}})
+        except Exception as e:
+            logger.error("reminder loop error: %s", e)
+        await asyncio.sleep(1800)
+
+
 @app.on_event("startup")
 async def startup():
     await seed()
+    asyncio.create_task(reminder_loop())
 
 
 @app.on_event("shutdown")

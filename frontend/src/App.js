@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Booking from "@/pages/Booking";
+import ManageBooking from "@/pages/ManageBooking";
 import Login from "@/pages/admin/Login";
 import AdminLayout from "@/pages/admin/AdminLayout";
 import Dashboard from "@/pages/admin/Dashboard";
@@ -30,6 +31,7 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Booking />} />
+            <Route path="/booking/:reference" element={<ManageBooking />} />
             <Route path="/admin/login" element={<Login />} />
             <Route path="/admin" element={<Protected><AdminLayout /></Protected>}>
               <Route index element={<Dashboard />} />
