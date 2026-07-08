@@ -112,24 +112,31 @@ async def require_superadmin(user: dict = Depends(get_current_user)) -> dict:
 
 
 # ------------------------------------------------------------------ email
+SETTINGS_DEFAULTS = {
+    "business_email": "",
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_user": "",
+    "smtp_password": "",
+    "from_name": "Wife To Be",
+    "public_url": "",
+    "notify_customer_on_booking": False,
+    "notify_shop_on_booking": False,
+    "notify_on_confirm": False,
+    "notify_reminder": False,
+}
+
+
 async def get_settings() -> dict:
     s = await db.settings.find_one({"_id": "global"})
     if not s:
-        s = {
-            "_id": "global",
-            "business_email": "",
-            "smtp_host": "",
-            "smtp_port": 587,
-            "smtp_user": "",
-            "smtp_password": "",
-            "from_name": "Wife To Be",
-            "public_url": "",
-            "notify_customer_on_booking": False,
-            "notify_shop_on_booking": False,
-            "notify_on_confirm": False,
-            "notify_reminder": False,
-        }
+        s = {"_id": "global", **SETTINGS_DEFAULTS}
         await db.settings.insert_one(s)
+        return s
+    missing = {k: v for k, v in SETTINGS_DEFAULTS.items() if k not in s}
+    if missing:
+        await db.settings.update_one({"_id": "global"}, {"$set": missing})
+        s.update(missing)
     return s
 
 
@@ -791,10 +798,11 @@ async def reminder_loop():
                     except Exception:
                         continue
                     if lo <= dt <= hi:
-                        send_email(settings, b["customer_email"], "Your Wife To Be appointment is tomorrow",
+                        sent = send_email(settings, b["customer_email"], "Your Wife To Be appointment is tomorrow",
                                    f"Dear {b['customer_name']},\n\nA gentle reminder of your {b['appointment_type_name']} at our {b['shop_name']} boutique "
                                    f"tomorrow, {b['date']} at {b['start_time']}. Reference {b['reference']}.{manage_link(settings, b['reference'])}\n\nWe look forward to seeing you.\nWife To Be")
-                        await db.bookings.update_one({"_id": b["_id"]}, {"$set": {"reminder_sent": True}})
+                        if sent:
+                            await db.bookings.update_one({"_id": b["_id"]}, {"$set": {"reminder_sent": True}})
         except Exception as e:
             logger.error("reminder loop error: %s", e)
         await asyncio.sleep(1800)

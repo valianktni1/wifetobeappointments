@@ -11,7 +11,8 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: "https://github.com/valianktni1/wifetobeappointments.git#main:backend"
+    image: wtb-backend:latest
     container_name: wtb-backend
     restart: unless-stopped
     depends_on:
@@ -31,9 +32,10 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: "https://github.com/valianktni1/wifetobeappointments.git#main:frontend"
       args:
         REACT_APP_BACKEND_URL: ""
+    image: wtb-frontend:latest
     container_name: wtb-frontend
     restart: unless-stopped
     depends_on:
@@ -43,7 +45,6 @@ services:
     networks:
       - wtb
 
-  # Nightly backup of the database into your photographers_data/saveddata mount
   backup:
     image: mongo:7
     container_name: wtb-backup
