@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth, apiErr } from "@/context/AuthContext";
@@ -14,7 +14,9 @@ export default function Login() {
   const [mfa, setMfa] = useState(null); // mfa_token
   const [code, setCode] = useState("");
 
-  if (user) { nav("/admin", { replace: true }); }
+  useEffect(() => {
+    if (user) nav("/admin", { replace: true });
+  }, [user, nav]);
 
   const submit = async (e) => {
     e.preventDefault();
