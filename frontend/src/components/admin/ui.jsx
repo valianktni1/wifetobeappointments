@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { X } from "lucide-react";
 import { Eyebrow, GoldRule } from "@/components/Brand";
 
@@ -40,16 +40,28 @@ export function Toggle({ checked, onChange, testid }) {
 }
 
 export function Modal({ open, onClose, title, children, testid }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid={testid}>
-      <div className="absolute inset-0" style={{ background: "rgba(42,37,33,.5)" }} onClick={onClose} />
-      <div className="relative card-wtb p-8 w-full max-w-lg reveal-up max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-3xl">{title}</h3>
-          <button onClick={onClose} className="text-taupe hover:text-[var(--charcoal)]" data-testid="modal-close" style={{ color: "var(--taupe)" }}><X size={20} /></button>
+    <div className="fixed inset-0 z-50 overflow-y-auto" data-testid={testid}>
+      <div className="fixed inset-0" style={{ background: "rgba(42,37,33,.55)", backdropFilter: "blur(2px)" }} onClick={onClose} />
+      <div className="relative min-h-full flex items-start sm:items-center justify-center p-3 sm:p-6">
+        <div className="relative card-wtb w-full max-w-lg my-6 sm:my-10 reveal-up">
+          <div className="sticky top-0 z-10 flex items-center justify-between px-5 sm:px-8 py-4 border-b"
+            style={{ borderColor: "var(--line)", background: "#fff" }}>
+            <h3 className="text-2xl sm:text-3xl">{title}</h3>
+            <button onClick={onClose} data-testid="modal-close" aria-label="Close"
+              className="w-9 h-9 flex items-center justify-center rounded-full transition-colors shrink-0 hover:bg-[var(--ivory-2)]"
+              style={{ color: "var(--taupe)" }}><X size={20} /></button>
+          </div>
+          <div className="px-5 sm:px-8 py-6">{children}</div>
         </div>
-        {children}
       </div>
     </div>
   );

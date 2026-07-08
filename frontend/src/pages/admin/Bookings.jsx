@@ -87,7 +87,7 @@ export default function Bookings() {
       <Modal open={!!active} onClose={() => setActive(null)} title="Booking Details" testid="booking-modal">
         {active && (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-4 font-sans-j text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans-j text-sm">
               <Info k="Reference" v={active.reference} />
               <Info k="Status" v={<StatusBadge status={active.status} />} />
               <Info k="Customer" v={active.customer_name} />
@@ -101,7 +101,7 @@ export default function Bookings() {
 
             <div className="border-t pt-5" style={{ borderColor: "var(--line)" }}>
               <p className="field-label mb-3">Reschedule / Edit</p>
-              <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <Field label="Date"><input type="date" className="input-wtb" value={resched.date} data-testid="resched-date"
                   onChange={(e) => setResched({ ...resched, date: e.target.value })} /></Field>
                 <Field label="Time"><input type="time" className="input-wtb" value={resched.start_time} data-testid="resched-time"
