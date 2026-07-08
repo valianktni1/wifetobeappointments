@@ -7,7 +7,7 @@ services:
     volumes:
       - /mnt/apps/wifetibeappointments/appdata:/data/db
     networks:
-      - wbm
+      - wbm-network
 
   backend:
     build:
@@ -28,7 +28,7 @@ services:
     volumes:
       - /mnt/photographers_data/wifetobeappointments/saveddata:/app/saveddata
     networks:
-      - wbm
+      - wbm-network
 
   frontend:
     build:
@@ -43,7 +43,7 @@ services:
     ports:
       - "30039:80"
     networks:
-      - wbm
+      - wbm-network
 
   backup:
     image: mongo:7
@@ -64,8 +64,8 @@ services:
     volumes:
       - /mnt/photographers_data/wifetobeappointments/saveddata:/backup
     networks:
-      - wbm
+      - wbm-network
 
 networks:
-  wbm:
+  wbm-network:
     driver: bridge
