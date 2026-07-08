@@ -1,0 +1,31 @@
+{
+  "summary": "Tested new self-service profile update feature (POST /api/auth/update-profile) end-to-end. All 9 backend pytest cases and full UI flow passed. Regression checks for superadmin login, change-password, and 2FA setup all green.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_update_profile.py",
+    "/app/test_reports/pytest/pytest_results_iter3.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor: React console warning 'Cannot update a component while rendering a different component' triggered by Login page (unrelated to this feature but should be fixed - likely a setState in render inside Login.jsx or AuthContext).",
+    "Suggestion: update-profile currently allows empty body (no-op returns current user). Consider returning 400 when neither name nor email provided, though this is a minor UX nit."
+  ],
+  "updated_files": ["/app/backend/tests/test_update_profile.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100%"},
+  "test_credentials": "Superadmin superadmin@wifetobe.co.uk / WifeToBe2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created ephemeral TEST_ admin per test via POST /api/admins, deleted in teardown. No residual test data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live in /app/backend/tests/test_update_profile.py. Note Pydantic EmailStr rejects .test/.example TLDs - use @example.com for synthetic addresses. Max 4 admins limit still applies; teardown must delete TEST_ admins. Login testids used: login-email, login-password, login-submit. Nav testid: nav-my-account. Profile testids: profile-name, profile-email, save-profile.",
+  "verified_behaviors": [
+    "Name-only update succeeds and persists via /auth/me",
+    "Email update succeeds, is lowercased, new email logs in, old email is rejected",
+    "Email conflict with existing user returns 400 'already in use'",
+    "Updating to own email is a no-op success",
+    "Unauthenticated update-profile returns 401/403",
+    "Response excludes password_hash and totp_secret",
+    "UI: profile fields pre-fill from logged-in user, Save Profile shows success toast, Change Password + 2FA sections remain rendered",
+    "UI: freshly created admin can log in and self-service change email without superadmin"
+  ]
+}

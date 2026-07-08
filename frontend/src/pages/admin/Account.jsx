@@ -6,9 +6,22 @@ import { PageHead, Panel, Field, Toggle } from "@/components/admin/ui";
 
 export default function Account() {
   const { user, refresh } = useAuth();
+  const [profile, setProfile] = useState({ name: "", email: "" });
   const [pw, setPw] = useState({ current_password: "", new_password: "", confirm: "" });
   const [tfa, setTfa] = useState(null); // {secret, qr}
   const [code, setCode] = useState("");
+
+  React.useEffect(() => {
+    if (user) setProfile({ name: user.name || "", email: user.email || "" });
+  }, [user]);
+
+  const saveProfile = async () => {
+    if (!profile.name || !profile.email) { toast.error("Name and email are required"); return; }
+    try {
+      await api.post("/auth/update-profile", { name: profile.name, email: profile.email });
+      toast.success("Profile updated"); refresh();
+    } catch (e) { toast.error(apiErr(e)); }
+  };
 
   const changePw = async () => {
     if (pw.new_password.length < 6) { toast.error("New password must be at least 6 characters"); return; }
@@ -39,8 +52,19 @@ export default function Account() {
       <div className="grid lg:grid-cols-2 gap-6">
         <Panel>
           <h3 className="text-2xl mb-1">Profile</h3>
-          <p className="font-sans-j text-sm mb-6" style={{ color: "var(--taupe)" }}>{user?.name} · {user?.email}</p>
-          <h4 className="text-xl mb-4">Change Password</h4>
+          <p className="font-sans-j text-sm mb-6" style={{ color: "var(--taupe)" }}>
+            Manage your own name and email address — you don't need the superadmin to change these.
+          </p>
+          <div className="space-y-5 mb-8">
+            <Field label="Name"><input className="input-wtb" value={profile.name} data-testid="profile-name"
+              onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></Field>
+            <Field label="Email Address"><input className="input-wtb" type="email" value={profile.email} data-testid="profile-email"
+              onChange={(e) => setProfile({ ...profile, email: e.target.value })} /></Field>
+            <p className="font-sans-j text-xs" style={{ color: "var(--taupe)" }}>Your email is also your login. Use the new address next time you sign in.</p>
+            <button className="btn-wtb btn-gold" onClick={saveProfile} data-testid="save-profile">Save Profile</button>
+          </div>
+          <div className="border-t pt-6" style={{ borderColor: "var(--line)" }}>
+            <h4 className="text-xl mb-4">Change Password</h4>
           <div className="space-y-5">
             <Field label="Current Password"><input className="input-wtb" type="password" value={pw.current_password} data-testid="current-pw"
               onChange={(e) => setPw({ ...pw, current_password: e.target.value })} /></Field>
@@ -49,6 +73,7 @@ export default function Account() {
             <Field label="Confirm New Password"><input className="input-wtb" type="password" value={pw.confirm} data-testid="confirm-pw"
               onChange={(e) => setPw({ ...pw, confirm: e.target.value })} /></Field>
             <button className="btn-wtb btn-gold" onClick={changePw} data-testid="change-pw-btn">Update Password</button>
+          </div>
           </div>
         </Panel>
 

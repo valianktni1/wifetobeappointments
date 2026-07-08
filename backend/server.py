@@ -291,6 +291,29 @@ async def me(user: dict = Depends(get_current_user)):
     return clean(user)
 
 
+class ProfileIn(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+
+@api.post("/auth/update-profile")
+async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)):
+    update = {}
+    if body.name:
+        update["name"] = body.name.strip()
+    if body.email:
+        email = body.email.lower().strip()
+        if email != user["email"]:
+            existing = await db.users.find_one({"email": email})
+            if existing:
+                raise HTTPException(status_code=400, detail="That email is already in use")
+            update["email"] = email
+    if update:
+        await db.users.update_one({"_id": user["_id"]}, {"$set": update})
+    doc = await db.users.find_one({"_id": user["_id"]})
+    return clean(doc)
+
+
 @api.post("/auth/change-password")
 async def change_password(body: ChangePwIn, user: dict = Depends(get_current_user)):
     if not verify_password(body.current_password, user["password_hash"]):
