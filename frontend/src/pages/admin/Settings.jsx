@@ -1,0 +1,66 @@
+import React, { useEffect, useState } from "react";
+import { toast } from "sonner";
+import api, { apiErr } from "@/lib/api";
+import { PageHead, Panel, Field, Toggle } from "@/components/admin/ui";
+
+export default function Settings() {
+  const [s, setS] = useState(null);
+
+  useEffect(() => { api.get("/settings").then((r) => setS(r.data)).catch((e) => toast.error(apiErr(e))); }, []);
+
+  const save = async () => {
+    try { await api.put("/settings", s); toast.success("Settings saved"); } catch (e) { toast.error(apiErr(e)); }
+  };
+
+  if (!s) return <p className="eyebrow">Loading…</p>;
+
+  const set = (patch) => setS({ ...s, ...patch });
+
+  return (
+    <div className="reveal-up">
+      <PageHead eyebrow="Superadmin" title="Settings" />
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        <Panel>
+          <h3 className="text-2xl mb-1">Business Email</h3>
+          <p className="font-sans-j text-sm mb-6" style={{ color: "var(--taupe)" }}>Generic address the app sends from. Configure SMTP to enable outgoing email.</p>
+          <div className="space-y-5">
+            <Field label="From Name"><input className="input-wtb" value={s.from_name || ""} data-testid="set-from-name"
+              onChange={(e) => set({ from_name: e.target.value })} /></Field>
+            <Field label="Business Email"><input className="input-wtb" type="email" value={s.business_email || ""} data-testid="set-business-email"
+              onChange={(e) => set({ business_email: e.target.value })} placeholder="hello@wifetobe.co.uk" /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="SMTP Host"><input className="input-wtb" value={s.smtp_host || ""} data-testid="set-smtp-host"
+                onChange={(e) => set({ smtp_host: e.target.value })} placeholder="smtp.gmail.com" /></Field>
+              <Field label="SMTP Port"><input className="input-wtb" type="number" value={s.smtp_port || 587} data-testid="set-smtp-port"
+                onChange={(e) => set({ smtp_port: Number(e.target.value) })} /></Field>
+            </div>
+            <Field label="SMTP Username"><input className="input-wtb" value={s.smtp_user || ""} data-testid="set-smtp-user"
+              onChange={(e) => set({ smtp_user: e.target.value })} /></Field>
+            <Field label="SMTP Password / App Password"><input className="input-wtb" type="password" value={s.smtp_password || ""} data-testid="set-smtp-pass"
+              onChange={(e) => set({ smtp_password: e.target.value })} /></Field>
+          </div>
+        </Panel>
+
+        <Panel>
+          <h3 className="text-2xl mb-1">Notifications</h3>
+          <p className="font-sans-j text-sm mb-6" style={{ color: "var(--taupe)" }}>Choose which emails send automatically. All off by default.</p>
+          <div className="space-y-5">
+            {[
+              { k: "notify_customer_on_booking", l: "Email customer on new booking request" },
+              { k: "notify_shop_on_booking", l: "Email the boutique on new booking request" },
+              { k: "notify_on_confirm", l: "Email customer when a booking is confirmed" },
+            ].map((n) => (
+              <div key={n.k} className="flex items-center justify-between gap-4">
+                <span className="font-sans-j text-sm">{n.l}</span>
+                <Toggle checked={!!s[n.k]} onChange={(v) => set({ [n.k]: v })} testid={`toggle-${n.k}`} />
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+
+      <button className="btn-wtb btn-gold mt-8" onClick={save} data-testid="save-settings">Save Settings</button>
+    </div>
+  );
+}

@@ -1,0 +1,33 @@
+{
+  "summary": "Full backend + frontend testing of Wife To Be appointment booking app. Backend: 30/30 pytest tests passed covering shops, auth (login/me/change-password), 2FA lifecycle (setup->enable->mfa login->verify->disable via pyotp), superadmin admin management (create up to 4, 5th rejected, duplicate rejected, deactivate, delete, cannot delete superadmin, non-superadmin gets 403 on /admins and /settings), public slot computation (Monday closed, Tuesday open, overlap-blocked after booking, closed-day booking rejected 409), appointment types CRUD with duration validation (30/60/90/120), availability get/put, blocked dates, bookings list/patch, dashboard stats, settings mask+update. Frontend: full public booking flow end-to-end (shop -> type -> date -> slot -> details -> confirmation with WTB- reference) works; admin login, all nav pages load (Dashboard, Bookings, Availability, Appointments, Admins, Settings, My Account), stat cards render, filter/change-pw/setup-2fa/add-type controls present; logout works.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "MINOR NAMING NIT (not a bug): The problem statement listed nav testids as 'nav-appointment-types' and 'nav-account', but AdminLayout generates them from labels as 'nav-appointments' and 'nav-my-account'. Functionality is fine; either update docs or align labels if strict consistency is desired.",
+    "MINOR: In Booking.jsx line 262 the slot container has data-testid='slot-grid' which begins with 'slot-' and can be mistakenly matched by tests using selector [data-testid^='slot-']. Consider renaming to 'slots-grid' to avoid ambiguity. Buttons themselves are correctly 'slot-HH:MM'."
+  ],
+  "critical_code_review_comments": [
+    "server.py is a single 748-line file. Consider splitting into routers (auth, admins, shops, bookings, settings) for maintainability if it grows further.",
+    "public_slots() is called both as an HTTP endpoint and directly from create_booking(). It works because it's a plain async function, but coupling route handlers this way is fragile - extract the slot computation into a helper.",
+    "create_booking is a public unauthenticated POST with no rate limiting - could allow spam. Consider a lightweight IP throttle or captcha in production.",
+    "Booking reference uses only 5 random bytes -> 8-char base32; collision possible eventually. DB has no unique index on 'reference'. Add unique index and retry on duplicate.",
+    "@app.on_event('startup'/'shutdown') is deprecated in FastAPI - migrate to lifespan context manager.",
+    "seed() is not idempotent for shops - if a shop is deleted or half-seeded it won't recreate individual items (guarded only by count==0).",
+    "No index on bookings (shop_id, date, status) - will get slow as bookings grow; also no index on blocked_dates."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Superadmin: superadmin@wifetobe.co.uk / WifeToBe2026!",
+  "seed_data_creation": "None persisted - all TEST_ admins/appointment-types/blocked-dates/bookings cleaned up in test teardown. Any remaining TEST bookings were cancelled after runs.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/backend_test.py uses pytest-xdist (2 workers). Reference bookings can be created against the next Tuesday (Warrington open Tue-Fri 11-17, Sat 10-17, closed Sun/Mon). Note the slot-grid vs slot-HH:MM selector ambiguity when writing Playwright tests - use button[data-testid^='slot-'] to filter to slot buttons only. Nav testids: nav-dashboard, nav-bookings, nav-availability, nav-appointments, nav-admins, nav-settings, nav-my-account."
+}
