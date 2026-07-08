@@ -1,0 +1,26 @@
+{
+  "summary": "Per-admin SMTP feature end-to-end verified. Backend 14/14 tests PASS: GET/PUT /api/auth/my-email-settings (masking, defaults, sender_email lowercased, ******** does not overwrite), POST /api/auth/my-email-settings/test (400 unconfigured, 400 'Could not send' for bogus host), no smtp_password leak in /auth/me, /admins, /update-profile, per-admin isolation (admin SMTP does not affect superadmin), regression PASS for login/update-profile/change-password/2fa/setup. Frontend UI passes for BOTH superadmin and a freshly-created TEST admin: all 9 SMTP testids render, Save shows success toast, unconfigured Send Test shows error toast, bogus host Send Test shows 'Could not send' error, and after page reload smtp_host persists while smtp_password is masked as '********'. TEST admin created and deleted; superadmin's SMTP fields cleared as teardown.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_smtp_per_admin.py",
+    "/app/test_reports/pytest/smtp_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "clean() correctly strips smtp_password, password_hash, totp_secret from all user-returning endpoints — good.",
+    "PUT /api/auth/my-email-settings correctly treats incoming '********' as sentinel and pops it so existing password is preserved.",
+    "sender_email is lowercased on write; GET falls back to login email when unset — matches spec.",
+    "cfg_from_user() vs cfg_from_settings() resolve order: per-user preferred, then global superadmin settings — verified via isolation test (super's cleared config not affected by admin's config).",
+    "Minor: /api/auth/update-profile currently returns {ok:true} (not a user object); confirmed no smtp_password leaked.",
+    "Login button has no type='submit'; get_by_role('button', name='Sign In') works. Not a bug, just noted for future test authoring."
+  ],
+  "updated_files": ["/app/backend/tests/test_smtp_per_admin.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100%"},
+  "test_credentials": "superadmin@wifetobe.co.uk / WifeToBe2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created + deleted TEST admin test_ui_smtp@wifetobe.co.uk (UI) and test_smtp_admin@wifetobe.co.uk (backend fixture). Superadmin SMTP fields were set for masking tests then cleared to empty smtp_host to avoid a bogus global SMTP being picked up by resolve_cfg.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend suite lives at /app/backend/tests/test_smtp_per_admin.py — run with `REACT_APP_BACKEND_URL=... python -m pytest backend/tests/test_smtp_per_admin.py -o addopts=''` (repo pytest.ini enables xdist which needs to be disabled for these fixtures). Real SMTP is unavailable in this env — 400 'Could not send' on bogus host is the expected pass signal. Login form uses a Sign In button (not type=submit); use get_by_role or [data-testid] if present.",
+  "rca of the issue": "N/A — this iteration was feature verification (per-admin SMTP), not a bug fix. All acceptance criteria in the review request are met."
+}

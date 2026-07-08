@@ -83,6 +83,7 @@ def clean(doc: dict) -> dict:
     doc["id"] = str(doc.pop("_id"))
     doc.pop("password_hash", None)
     doc.pop("totp_secret", None)
+    doc.pop("smtp_password", None)
     return doc
 
 
@@ -145,25 +146,64 @@ def manage_link(settings: dict, ref: str) -> str:
     return f"\n\nView or reschedule your appointment: {base}/booking/{ref}" if base else ""
 
 
-def send_email(settings: dict, to: str, subject: str, body: str) -> bool:
-    if not settings.get("smtp_host") or not settings.get("business_email"):
+def _smtp_send(cfg: dict, to: str, subject: str, body: str) -> bool:
+    if not cfg or not cfg.get("smtp_host") or not cfg.get("from_addr"):
         logger.info("Email skipped (SMTP not configured): %s -> %s", subject, to)
         return False
     try:
         msg = EmailMessage()
         msg["Subject"] = subject
-        msg["From"] = f"{settings.get('from_name', 'Wife To Be')} <{settings['business_email']}>"
+        msg["From"] = f"{cfg.get('from_name') or 'Wife To Be'} <{cfg['from_addr']}>"
         msg["To"] = to
         msg.set_content(body)
-        with smtplib.SMTP(settings["smtp_host"], int(settings.get("smtp_port", 587)), timeout=15) as server:
+        with smtplib.SMTP(cfg["smtp_host"], int(cfg.get("smtp_port", 587)), timeout=15) as server:
             server.starttls()
-            if settings.get("smtp_user"):
-                server.login(settings["smtp_user"], settings.get("smtp_password", ""))
+            if cfg.get("smtp_user"):
+                server.login(cfg["smtp_user"], cfg.get("smtp_password", ""))
             server.send_message(msg)
         return True
     except Exception as e:
         logger.error("Email send failed: %s", e)
         return False
+
+
+def cfg_from_user(u: dict) -> Optional[dict]:
+    if u and u.get("smtp_host"):
+        return {
+            "smtp_host": u.get("smtp_host"),
+            "smtp_port": u.get("smtp_port", 587),
+            "smtp_user": u.get("smtp_user"),
+            "smtp_password": u.get("smtp_password"),
+            "from_addr": u.get("sender_email") or u.get("email"),
+            "from_name": u.get("sender_name") or "Wife To Be",
+        }
+    return None
+
+
+def cfg_from_settings(s: dict) -> Optional[dict]:
+    if s and s.get("smtp_host") and s.get("business_email"):
+        return {
+            "smtp_host": s.get("smtp_host"),
+            "smtp_port": s.get("smtp_port", 587),
+            "smtp_user": s.get("smtp_user"),
+            "smtp_password": s.get("smtp_password"),
+            "from_addr": s.get("business_email"),
+            "from_name": s.get("from_name") or "Wife To Be",
+        }
+    return None
+
+
+async def resolve_cfg(preferred_user: Optional[dict] = None) -> Optional[dict]:
+    """Pick an SMTP config: the acting admin's own -> global business -> any admin with SMTP set."""
+    if preferred_user:
+        c = cfg_from_user(preferred_user)
+        if c:
+            return c
+    c = cfg_from_settings(await get_settings())
+    if c:
+        return c
+    u = await db.users.find_one({"smtp_host": {"$nin": [None, ""]}})
+    return cfg_from_user(u) if u else None
 
 
 # ------------------------------------------------------------------ models
@@ -312,6 +352,57 @@ async def update_profile(body: ProfileIn, user: dict = Depends(get_current_user)
         await db.users.update_one({"_id": user["_id"]}, {"$set": update})
     doc = await db.users.find_one({"_id": user["_id"]})
     return clean(doc)
+
+
+class MyEmailSettingsIn(BaseModel):
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    sender_email: Optional[EmailStr] = None
+    sender_name: Optional[str] = None
+
+
+class TestEmailIn(BaseModel):
+    to: EmailStr
+
+
+@api.get("/auth/my-email-settings")
+async def get_my_email_settings(user: dict = Depends(get_current_user)):
+    return {
+        "smtp_host": user.get("smtp_host", ""),
+        "smtp_port": user.get("smtp_port", 587),
+        "smtp_user": user.get("smtp_user", ""),
+        "smtp_password": "********" if user.get("smtp_password") else "",
+        "sender_email": user.get("sender_email", "") or user.get("email", ""),
+        "sender_name": user.get("sender_name", "") or "Wife To Be",
+    }
+
+
+@api.put("/auth/my-email-settings")
+async def put_my_email_settings(body: MyEmailSettingsIn, user: dict = Depends(get_current_user)):
+    update = {k: v for k, v in body.model_dump().items() if v is not None}
+    if update.get("smtp_password") == "********":
+        update.pop("smtp_password")
+    if "sender_email" in update and update["sender_email"]:
+        update["sender_email"] = update["sender_email"].lower().strip()
+    if update:
+        await db.users.update_one({"_id": user["_id"]}, {"$set": update})
+    return {"ok": True}
+
+
+@api.post("/auth/my-email-settings/test")
+async def test_my_email_settings(body: TestEmailIn, user: dict = Depends(get_current_user)):
+    u = await db.users.find_one({"_id": user["_id"]})
+    cfg = cfg_from_user(u)
+    if not cfg:
+        raise HTTPException(status_code=400, detail="Please save your SMTP host and details first")
+    ok = _smtp_send(cfg, body.to, "Wife To Be — test email",
+                    f"This is a test email sent from your Wife To Be account ({cfg['from_addr']}).\n\n"
+                    f"If you've received this, your outgoing email is configured correctly.")
+    if not ok:
+        raise HTTPException(status_code=400, detail="Could not send — please check your SMTP host, port, username and password")
+    return {"ok": True}
 
 
 @api.post("/auth/change-password")
@@ -590,13 +681,15 @@ async def create_booking(body: BookingIn):
     doc["_id"] = res.inserted_id
     # optional notifications
     settings = await get_settings()
+    cfg = await resolve_cfg()
     when = f"{body.date} at {body.start_time}"
     if settings.get("notify_customer_on_booking"):
-        send_email(settings, doc["customer_email"], "Your Wife To Be appointment request",
+        _smtp_send(cfg, doc["customer_email"], "Your Wife To Be appointment request",
                    f"Dear {doc['customer_name']},\n\nWe have received your request for a {atype['name']} at our {shop['name']} boutique on {when}. "
                    f"Your reference is {ref}. We will confirm your appointment shortly.{manage_link(settings, ref)}\n\nWith love,\nWife To Be")
-    if settings.get("notify_shop_on_booking") and settings.get("business_email"):
-        send_email(settings, settings["business_email"], f"New booking request — {shop['name']}",
+    shop_to = settings.get("business_email") or (cfg or {}).get("from_addr")
+    if settings.get("notify_shop_on_booking") and shop_to:
+        _smtp_send(cfg, shop_to, f"New booking request — {shop['name']}",
                    f"{doc['customer_name']} ({doc['customer_email']}, {doc['customer_phone']}) requested a {atype['name']} on {when}. Ref {ref}.")
     return clean(doc)
 
@@ -681,7 +774,8 @@ async def update_booking(booking_id: str, body: BookingUpdateIn, user: dict = De
     if body.status == "confirmed":
         settings = await get_settings()
         if settings.get("notify_on_confirm"):
-            send_email(settings, doc["customer_email"], "Your Wife To Be appointment is confirmed",
+            cfg = await resolve_cfg(user)
+            _smtp_send(cfg, doc["customer_email"], "Your Wife To Be appointment is confirmed",
                        f"Dear {doc['customer_name']},\n\nYour {doc['appointment_type_name']} at our {doc['shop_name']} boutique on "
                        f"{doc['date']} at {doc['start_time']} is now confirmed. Reference {doc['reference']}.{manage_link(settings, doc['reference'])}\n\nWe can't wait to see you.\nWife To Be")
     return clean(doc)
@@ -809,7 +903,8 @@ async def reminder_loop():
     while True:
         try:
             settings = await get_settings()
-            if settings.get("notify_reminder") and settings.get("smtp_host"):
+            if settings.get("notify_reminder"):
+                cfg = await resolve_cfg()
                 now = datetime.now()
                 lo, hi = now + timedelta(hours=23), now + timedelta(hours=25)
                 candidates = await db.bookings.find(
@@ -821,7 +916,7 @@ async def reminder_loop():
                     except Exception:
                         continue
                     if lo <= dt <= hi:
-                        sent = send_email(settings, b["customer_email"], "Your Wife To Be appointment is tomorrow",
+                        sent = _smtp_send(cfg, b["customer_email"], "Your Wife To Be appointment is tomorrow",
                                    f"Dear {b['customer_name']},\n\nA gentle reminder of your {b['appointment_type_name']} at our {b['shop_name']} boutique "
                                    f"tomorrow, {b['date']} at {b['start_time']}. Reference {b['reference']}.{manage_link(settings, b['reference'])}\n\nWe look forward to seeing you.\nWife To Be")
                         if sent:
