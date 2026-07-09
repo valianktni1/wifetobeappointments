@@ -30,6 +30,16 @@ Bridal boutique group (wifetobe.co.uk, hosted on Hostinger) wants a self-hosted 
 - Email framework built (SMTP send helper + toggles); notifications default OFF, wire specifics later.
 - Tested: backend 30/30 pytest pass, frontend e2e pass (iteration_1.json).
 
+## Enhancements (2026-06) — all additive, backward-compatible
+- Per-shop custom booking questions (text/textarea/date/dropdown, required) via Customise page; answers stored on booking + shown in admin detail.
+- Slot capacity (concurrent rooms) + buffer minutes between appointments; intra-day/partial-day blocked time ranges.
+- CSV export of bookings; read-only iCal subscription feed ({BACKEND}/api/calendar/{token}.ics) for Google/Apple Calendar.
+- Add-to-calendar (Google link + .ics) on the confirmation screen.
+- Boutique info (photo + opening-hours text + what-to-expect) editable per shop, shown on public cards.
+- Customer waitlist when no slots available; admin Waitlist page (mark contacted / delete).
+- Per-admin SMTP settings + self-service profile/email; fully mobile-responsive; portalled, floating, easily-closable modals.
+- Verified: iteration_8 (7 features), frontend 100%.
+
 ## Backlog / Remaining
 - P1: Wire/verify automatic emails once SMTP configured; add reminder emails (24h before).
 - P2: Public booking rate limiting/captcha; reschedule slot re-validation in UI; customer self-manage booking via reference link.

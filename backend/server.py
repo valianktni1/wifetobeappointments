@@ -1034,6 +1034,14 @@ async def seed():
 
     await get_settings()
 
+    # backfill optional fields on any pre-existing shop documents (safe, additive)
+    await db.shops.update_many({"photo_url": {"$exists": False}}, {"$set": {"photo_url": ""}})
+    await db.shops.update_many({"questions": {"$exists": False}}, {"$set": {"questions": []}})
+    await db.shops.update_many({"hours_text": {"$exists": False}}, {"$set": {"hours_text": ""}})
+    await db.shops.update_many({"what_to_expect": {"$exists": False}}, {"$set": {"what_to_expect": ""}})
+    await db.availability.update_many({"capacity": {"$exists": False}}, {"$set": {"capacity": 1}})
+    await db.availability.update_many({"buffer": {"$exists": False}}, {"$set": {"buffer": 0}})
+
     if await db.shops.count_documents({}) == 0:
         warr = {
             "name": "Warrington Boutique", "slug": "warrington", "role_label": "Wedding Dresses",
