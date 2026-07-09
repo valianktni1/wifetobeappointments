@@ -23,7 +23,7 @@ import io
 import base64
 from bson import ObjectId
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel, Field, BeforeValidator, EmailStr, ConfigDict
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -44,6 +44,25 @@ app = FastAPI()
 api = APIRouter(prefix="/api")
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+DOCS_DIR = Path(__file__).resolve().parent.parent
+
+
+@api.get("/download/pitch")
+async def download_pitch():
+    fp = DOCS_DIR / "WifeToBe-Appointments-The-Plain-English-Pitch.txt"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(fp), media_type="text/plain", filename=fp.name)
+
+
+@api.get("/download/overview")
+async def download_overview():
+    fp = DOCS_DIR / "WifeToBe-Appointments-System-Overview.txt"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(fp), media_type="text/plain", filename=fp.name)
+
 
 # ------------------------------------------------------------------ helpers
 PyObjectId = Annotated[str, BeforeValidator(str)]
