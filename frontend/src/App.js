@@ -14,6 +14,8 @@ import AppointmentTypes from "@/pages/admin/AppointmentTypes";
 import Admins from "@/pages/admin/Admins";
 import Settings from "@/pages/admin/Settings";
 import Account from "@/pages/admin/Account";
+import Customise from "@/pages/admin/Customise";
+import Waitlist from "@/pages/admin/Waitlist";
 
 function Protected({ children }) {
   const { user, checking } = useAuth();
@@ -38,6 +40,8 @@ function App() {
               <Route path="bookings" element={<Bookings />} />
               <Route path="availability" element={<Availability />} />
               <Route path="appointment-types" element={<AppointmentTypes />} />
+              <Route path="customise" element={<Customise />} />
+              <Route path="waitlist" element={<Waitlist />} />
               <Route path="admins" element={<Admins />} />
               <Route path="settings" element={<Settings />} />
               <Route path="account" element={<Account />} />

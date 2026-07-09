@@ -60,6 +60,19 @@ export default function Settings() {
               </div>
             ))}
           </div>
+          <div className="border-t mt-6 pt-5" style={{ borderColor: "var(--line)" }}>
+            <p className="field-label mb-2">Calendar subscription (iCal)</p>
+            <p className="font-sans-j text-xs mb-3" style={{ color: "var(--taupe)" }}>
+              Add this URL to Google/Apple Calendar to see all upcoming bookings automatically.
+            </p>
+            <div className="flex gap-2">
+              <input readOnly className="input-wtb text-xs" data-testid="ical-url"
+                value={s.feed_token ? `${process.env.REACT_APP_BACKEND_URL}/api/calendar/${s.feed_token}.ics` : ""}
+                onFocus={(e) => e.target.select()} />
+              <button className="btn-wtb btn-ghost-wtb" data-testid="copy-ical"
+                onClick={() => { navigator.clipboard?.writeText(`${process.env.REACT_APP_BACKEND_URL}/api/calendar/${s.feed_token}.ics`); toast.success("Copied"); }}>Copy</button>
+            </div>
+          </div>
         </Panel>
       </div>
 

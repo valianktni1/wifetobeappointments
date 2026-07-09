@@ -8,6 +8,9 @@ load_dotenv(ROOT_DIR / ".env")
 import logging
 import asyncio
 import smtplib
+import secrets
+import csv
+import uuid
 from datetime import datetime, timezone, timedelta, date, time as dtime
 from email.message import EmailMessage
 from typing import List, Optional, Annotated, Any
@@ -20,6 +23,7 @@ import io
 import base64
 from bson import ObjectId
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field, BeforeValidator, EmailStr, ConfigDict
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -121,6 +125,7 @@ SETTINGS_DEFAULTS = {
     "smtp_password": "",
     "from_name": "Wife To Be",
     "public_url": "",
+    "feed_token": "",
     "notify_customer_on_booking": False,
     "notify_shop_on_booking": False,
     "notify_on_confirm": False,
@@ -206,6 +211,42 @@ async def resolve_cfg(preferred_user: Optional[dict] = None) -> Optional[dict]:
     return cfg_from_user(u) if u else None
 
 
+# ------------------------------------------------------------------ ICS calendar helpers
+def _to_min(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def _to_hhmm(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _ics_dt(date_str: str, time_str: str) -> str:
+    return date_str.replace("-", "") + "T" + time_str.replace(":", "") + "00"
+
+
+def _ics_escape(s: str) -> str:
+    return (s or "").replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+
+
+def booking_to_vevent(b: dict) -> str:
+    start = _ics_dt(b["date"], b["start_time"])
+    end = _ics_dt(b["date"], _to_hhmm(_to_min(b["start_time"]) + int(b.get("duration", 60))))
+    loc = _ics_escape(b.get("shop_address") or b.get("shop_name", ""))
+    summ = _ics_escape(f"{b.get('appointment_type_name', 'Appointment')} — {b.get('shop_name', '')}")
+    desc = _ics_escape(f"Reference {b.get('reference', '')}. {b.get('customer_name', '')}.")
+    return "\r\n".join([
+        "BEGIN:VEVENT", f"UID:{b.get('reference', uuid.uuid4().hex)}@wifetobe",
+        f"DTSTAMP:{start}", f"DTSTART:{start}", f"DTEND:{end}",
+        f"SUMMARY:{summ}", f"LOCATION:{loc}", f"DESCRIPTION:{desc}", "END:VEVENT",
+    ])
+
+
+def wrap_ics(events: List[str]) -> str:
+    head = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Wife To Be//Appointments//EN\r\nCALSCALE:GREGORIAN\r\n"
+    return head + ("\r\n".join(events) + "\r\n" if events else "") + "END:VCALENDAR\r\n"
+
+
 # ------------------------------------------------------------------ models
 class LoginIn(BaseModel):
     email: EmailStr
@@ -245,20 +286,18 @@ class AppointmentTypeIn(BaseModel):
     active: bool = True
 
 
-class DayHours(BaseModel):
-    closed: bool = False
-    open: str = "10:00"
-    close: str = "17:00"
-
-
 class AvailabilityIn(BaseModel):
     hours: dict  # {"0": {closed, open, close}, ...}
     slot_step: int = 30
+    capacity: int = 1     # concurrent appointments per slot
+    buffer: int = 0       # minutes gap between appointments
 
 
 class BlockedDateIn(BaseModel):
     date: str  # YYYY-MM-DD
     reason: Optional[str] = ""
+    start_time: Optional[str] = None  # HH:MM -> partial-day block; None = whole day
+    end_time: Optional[str] = None
 
 
 class BookingIn(BaseModel):
@@ -270,13 +309,39 @@ class BookingIn(BaseModel):
     customer_email: EmailStr
     customer_phone: str
     notes: Optional[str] = ""
+    answers: Optional[List[dict]] = None  # [{label, value}]
 
 
 class BookingUpdateIn(BaseModel):
-    status: Optional[str] = None  # confirmed / cancelled / completed / pending
+    status: Optional[str] = None
     date: Optional[str] = None
     start_time: Optional[str] = None
     admin_notes: Optional[str] = None
+
+
+class ShopUpdateIn(BaseModel):
+    blurb: Optional[str] = None
+    photo_url: Optional[str] = None
+    what_to_expect: Optional[str] = None
+    hours_text: Optional[str] = None
+
+
+class QuestionsIn(BaseModel):
+    questions: List[dict]  # [{id?, label, type, options[], required}]
+
+
+class WaitlistIn(BaseModel):
+    shop_id: str
+    appointment_type_id: Optional[str] = None
+    date: Optional[str] = None
+    customer_name: str
+    customer_email: EmailStr
+    customer_phone: str
+    notes: Optional[str] = ""
+
+
+class WaitlistUpdateIn(BaseModel):
+    status: str  # waiting / contacted
 
 
 class SettingsIn(BaseModel):
@@ -517,6 +582,32 @@ async def get_shop(shop_id: str):
     return clean(doc)
 
 
+@api.patch("/shops/{shop_id}")
+async def update_shop(shop_id: str, body: ShopUpdateIn, user: dict = Depends(get_current_user)):
+    update = {k: v for k, v in body.model_dump().items() if v is not None}
+    if update:
+        await db.shops.update_one({"_id": oid(shop_id)}, {"$set": update})
+    doc = await db.shops.find_one({"_id": oid(shop_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return clean(doc)
+
+
+@api.put("/shops/{shop_id}/questions")
+async def set_questions(shop_id: str, body: QuestionsIn, user: dict = Depends(get_current_user)):
+    questions = []
+    for q in body.questions:
+        questions.append({
+            "id": q.get("id") or uuid.uuid4().hex[:8],
+            "label": (q.get("label") or "").strip(),
+            "type": q.get("type") or "text",
+            "options": q.get("options") or [],
+            "required": bool(q.get("required")),
+        })
+    await db.shops.update_one({"_id": oid(shop_id)}, {"$set": {"questions": questions}})
+    return {"questions": questions}
+
+
 # ------------------------------------------------------------------ appointment types
 @api.get("/shops/{shop_id}/appointment-types")
 async def list_types(shop_id: str, all: bool = False):
@@ -560,8 +651,10 @@ async def delete_type(type_id: str, user: dict = Depends(get_current_user)):
 async def get_availability(shop_id: str):
     doc = await db.availability.find_one({"shop_id": shop_id})
     if not doc:
-        return {"shop_id": shop_id, "hours": {}, "slot_step": 30}
+        return {"shop_id": shop_id, "hours": {}, "slot_step": 30, "capacity": 1, "buffer": 0}
     doc.pop("_id", None)
+    doc.setdefault("capacity", 1)
+    doc.setdefault("buffer", 0)
     return doc
 
 
@@ -569,7 +662,8 @@ async def get_availability(shop_id: str):
 async def set_availability(shop_id: str, body: AvailabilityIn, user: dict = Depends(get_current_user)):
     await db.availability.update_one(
         {"shop_id": shop_id},
-        {"$set": {"shop_id": shop_id, "hours": body.hours, "slot_step": body.slot_step}},
+        {"$set": {"shop_id": shop_id, "hours": body.hours, "slot_step": body.slot_step,
+                  "capacity": max(1, body.capacity), "buffer": max(0, body.buffer)}},
         upsert=True,
     )
     return {"ok": True}
@@ -583,7 +677,8 @@ async def get_blocked(shop_id: str):
 
 @api.post("/shops/{shop_id}/blocked-dates")
 async def add_blocked(shop_id: str, body: BlockedDateIn, user: dict = Depends(get_current_user)):
-    doc = {"shop_id": shop_id, "date": body.date, "reason": body.reason}
+    doc = {"shop_id": shop_id, "date": body.date, "reason": body.reason,
+           "start_time": body.start_time or None, "end_time": body.end_time or None}
     res = await db.blocked_dates.insert_one(doc)
     doc["_id"] = res.inserted_id
     return clean(doc)
@@ -596,15 +691,6 @@ async def del_blocked(block_id: str, user: dict = Depends(get_current_user)):
 
 
 # ------------------------------------------------------------------ slot computation
-def _to_min(hhmm: str) -> int:
-    h, m = hhmm.split(":")
-    return int(h) * 60 + int(m)
-
-
-def _to_hhmm(minutes: int) -> str:
-    return f"{minutes // 60:02d}:{minutes % 60:02d}"
-
-
 async def _compute_slots(shop_id: str, date: str, duration: int, exclude_ref: Optional[str] = None):
     if duration not in (30, 60, 90, 120):
         raise HTTPException(status_code=400, detail="Invalid duration")
@@ -614,9 +700,11 @@ async def _compute_slots(shop_id: str, date: str, duration: int, exclude_ref: Op
         raise HTTPException(status_code=400, detail="Invalid date")
     if d < datetime.now().date():
         return {"slots": []}
-    blocked = await db.blocked_dates.find_one({"shop_id": shop_id, "date": date})
-    if blocked:
+    blocks = await db.blocked_dates.find({"shop_id": shop_id, "date": date}).to_list(50)
+    # whole-day block (no time range) => closed
+    if any(not b.get("start_time") or not b.get("end_time") for b in blocks):
         return {"slots": [], "reason": "closed"}
+    timed = [(_to_min(b["start_time"]), _to_min(b["end_time"])) for b in blocks]
     avail = await db.availability.find_one({"shop_id": shop_id})
     if not avail:
         return {"slots": []}
@@ -624,16 +712,22 @@ async def _compute_slots(shop_id: str, date: str, duration: int, exclude_ref: Op
     if not day or day.get("closed"):
         return {"slots": [], "reason": "closed"}
     step = avail.get("slot_step", 30)
+    capacity = max(1, avail.get("capacity", 1))
+    buffer = max(0, avail.get("buffer", 0))
     open_m, close_m = _to_min(day["open"]), _to_min(day["close"])
     q = {"shop_id": shop_id, "date": date, "status": {"$ne": "cancelled"}}
     if exclude_ref:
         q["reference"] = {"$ne": exclude_ref}
-    existing = await db.bookings.find(q).to_list(200)
-    busy = [(_to_min(b["start_time"]), _to_min(b["start_time"]) + b["duration"]) for b in existing]
+    existing = await db.bookings.find(q).to_list(300)
+    # each existing occupies [start - buffer, start + duration + buffer]
+    busy = [(_to_min(b["start_time"]) - buffer, _to_min(b["start_time"]) + b["duration"] + buffer) for b in existing]
     slots = []
     t = open_m
     while t + duration <= close_m:
-        if not any(t < be and (t + duration) > bs for bs, be in busy):
+        s_start, s_end = t, t + duration
+        blocked = any(s_start < be and s_end > bs for bs, be in timed)
+        overlaps = sum(1 for bs, be in busy if s_start < be and s_end > bs)
+        if not blocked and overlaps < capacity:
             slots.append(_to_hhmm(t))
         t += step
     return {"slots": slots}
@@ -654,7 +748,6 @@ async def create_booking(body: BookingIn):
     if not atype:
         raise HTTPException(status_code=404, detail="Appointment type not found")
     duration = atype["duration"]
-    # validate slot still available
     avail = await _compute_slots(body.shop_id, body.date, duration)
     if body.start_time not in avail.get("slots", []):
         raise HTTPException(status_code=409, detail="That time slot is no longer available")
@@ -663,6 +756,7 @@ async def create_booking(body: BookingIn):
         "reference": ref,
         "shop_id": body.shop_id,
         "shop_name": shop["name"],
+        "shop_address": shop.get("address", ""),
         "appointment_type_id": body.appointment_type_id,
         "appointment_type_name": atype["name"],
         "duration": duration,
@@ -672,6 +766,7 @@ async def create_booking(body: BookingIn):
         "customer_email": body.customer_email.lower().strip(),
         "customer_phone": body.customer_phone.strip(),
         "notes": body.notes,
+        "answers": body.answers or [],
         "admin_notes": "",
         "status": "pending",
         "reminder_sent": False,
@@ -679,7 +774,6 @@ async def create_booking(body: BookingIn):
     }
     res = await db.bookings.insert_one(doc)
     doc["_id"] = res.inserted_id
-    # optional notifications
     settings = await get_settings()
     cfg = await resolve_cfg()
     when = f"{body.date} at {body.start_time}"
@@ -726,6 +820,16 @@ async def public_cancel(reference: str):
     return {"ok": True}
 
 
+@api.get("/public/bookings/{reference}/calendar.ics")
+async def booking_ics(reference: str):
+    b = await db.bookings.find_one({"reference": reference})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    ics = wrap_ics([booking_to_vevent(b)])
+    return Response(content=ics, media_type="text/calendar",
+                    headers={"Content-Disposition": f'attachment; filename="{reference}.ics"'})
+
+
 @api.get("/public/bookings/{reference}")
 async def get_booking_by_ref(reference: str):
     doc = await db.bookings.find_one({"reference": reference})
@@ -734,9 +838,7 @@ async def get_booking_by_ref(reference: str):
     return clean(doc)
 
 
-@api.get("/bookings")
-async def list_bookings(user: dict = Depends(get_current_user), shop_id: Optional[str] = None,
-                        status: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None):
+def _booking_query(shop_id, status, date_from, date_to):
     query: dict = {}
     if shop_id:
         query["shop_id"] = shop_id
@@ -748,8 +850,45 @@ async def list_bookings(user: dict = Depends(get_current_user), shop_id: Optiona
             query["date"]["$gte"] = date_from
         if date_to:
             query["date"]["$lte"] = date_to
+    return query
+
+
+@api.get("/bookings")
+async def list_bookings(user: dict = Depends(get_current_user), shop_id: Optional[str] = None,
+                        status: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None):
+    query = _booking_query(shop_id, status, date_from, date_to)
     docs = await db.bookings.find(query).sort([("date", 1), ("start_time", 1)]).to_list(1000)
     return [clean(d) for d in docs]
+
+
+@api.get("/bookings/export.csv")
+async def export_bookings_csv(user: dict = Depends(get_current_user), shop_id: Optional[str] = None,
+                              status: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None):
+    query = _booking_query(shop_id, status, date_from, date_to)
+    docs = await db.bookings.find(query).sort([("date", 1), ("start_time", 1)]).to_list(5000)
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Reference", "Date", "Time", "Duration (min)", "Status", "Boutique", "Appointment", "Customer", "Email", "Phone", "Notes", "Created"])
+    for b in docs:
+        w.writerow([b.get("reference", ""), b.get("date", ""), b.get("start_time", ""), b.get("duration", ""),
+                    b.get("status", ""), b.get("shop_name", ""), b.get("appointment_type_name", ""),
+                    b.get("customer_name", ""), b.get("customer_email", ""), b.get("customer_phone", ""),
+                    (b.get("notes") or "").replace("\n", " "), b.get("created_at", "")])
+    return Response(content=out.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="wifetobe-bookings.csv"'})
+
+
+@api.get("/calendar/{feed_token}.ics")
+async def calendar_feed(feed_token: str, shop_id: Optional[str] = None):
+    s = await get_settings()
+    if not s.get("feed_token") or feed_token != s["feed_token"]:
+        raise HTTPException(status_code=404, detail="Calendar feed not found")
+    today = datetime.now().date().isoformat()
+    q = {"date": {"$gte": today}, "status": {"$ne": "cancelled"}}
+    if shop_id:
+        q["shop_id"] = shop_id
+    docs = await db.bookings.find(q).to_list(2000)
+    return Response(content=wrap_ics([booking_to_vevent(b) for b in docs]), media_type="text/calendar")
 
 
 @api.patch("/bookings/{booking_id}")
@@ -781,6 +920,52 @@ async def update_booking(booking_id: str, body: BookingUpdateIn, user: dict = De
     return clean(doc)
 
 
+# ------------------------------------------------------------------ waitlist
+@api.post("/public/waitlist")
+async def add_waitlist(body: WaitlistIn):
+    shop = await db.shops.find_one({"_id": oid(body.shop_id)})
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    atype_name = ""
+    if body.appointment_type_id:
+        at = await db.appointment_types.find_one({"_id": oid(body.appointment_type_id)})
+        atype_name = at["name"] if at else ""
+    doc = {
+        "shop_id": body.shop_id, "shop_name": shop["name"],
+        "appointment_type_id": body.appointment_type_id, "appointment_type_name": atype_name,
+        "date": body.date or "", "customer_name": body.customer_name.strip(),
+        "customer_email": body.customer_email.lower().strip(), "customer_phone": body.customer_phone.strip(),
+        "notes": body.notes, "status": "waiting", "created_at": now_utc().isoformat(),
+    }
+    res = await db.waitlist.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return clean(doc)
+
+
+@api.get("/waitlist")
+async def list_waitlist(user: dict = Depends(get_current_user), shop_id: Optional[str] = None):
+    q = {}
+    if shop_id:
+        q["shop_id"] = shop_id
+    docs = await db.waitlist.find(q).sort("created_at", -1).to_list(500)
+    return [clean(d) for d in docs]
+
+
+@api.patch("/waitlist/{item_id}")
+async def update_waitlist(item_id: str, body: WaitlistUpdateIn, user: dict = Depends(get_current_user)):
+    await db.waitlist.update_one({"_id": oid(item_id)}, {"$set": {"status": body.status}})
+    doc = await db.waitlist.find_one({"_id": oid(item_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Not found")
+    return clean(doc)
+
+
+@api.delete("/waitlist/{item_id}")
+async def delete_waitlist(item_id: str, user: dict = Depends(get_current_user)):
+    await db.waitlist.delete_one({"_id": oid(item_id)})
+    return {"ok": True}
+
+
 @api.get("/dashboard/stats")
 async def dashboard_stats(user: dict = Depends(get_current_user)):
     today = datetime.now().date().isoformat()
@@ -794,9 +979,10 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
     for s in shops:
         c = await db.bookings.count_documents({"shop_id": str(s["_id"]), "date": {"$gte": today}, "status": {"$ne": "cancelled"}})
         per_shop.append({"shop": s["name"], "upcoming": c})
+    waitlist = await db.waitlist.count_documents({"status": "waiting"})
     return {
         "total": total, "pending": pending, "confirmed": confirmed, "upcoming": upcoming,
-        "today": [clean(d) for d in today_list], "per_shop": per_shop,
+        "waitlist": waitlist, "today": [clean(d) for d in today_list], "per_shop": per_shop,
     }
 
 
@@ -804,6 +990,10 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
 @api.get("/settings")
 async def read_settings(user: dict = Depends(require_superadmin)):
     s = await get_settings()
+    if not s.get("feed_token"):
+        token = secrets.token_urlsafe(16)
+        await db.settings.update_one({"_id": "global"}, {"$set": {"feed_token": token}})
+        s["feed_token"] = token
     s.pop("_id", None)
     s["smtp_password"] = "********" if s.get("smtp_password") else ""
     return s
@@ -825,7 +1015,6 @@ async def seed():
     await db.bookings.create_index("reference", unique=True)
     await db.blocked_dates.create_index([("shop_id", 1), ("date", 1)])
     await db.appointment_types.create_index("shop_id")
-    # superadmin
     email = os.environ["SUPERADMIN_EMAIL"].lower()
     existing = await db.users.find_one({"email": email})
     if not existing:
@@ -851,17 +1040,19 @@ async def seed():
             "address": "3-5 Fennel Street, Warrington, WA1 2PA", "phone": "01925 570093",
             "email": "thegroupuk@yahoo.com", "order": 0,
             "blurb": "Home to over 200 designer wedding gowns — a private, unhurried styling experience.",
+            "hours_text": "Tue–Fri 11am–5pm · Sat 10am–5pm",
+            "what_to_expect": "", "photo_url": "", "questions": [],
         }
         runc = {
             "name": "Runcorn Boutique", "slug": "runcorn", "role_label": "Suit Hire",
             "address": "136 Greenway Road, Runcorn, WA7 5BS", "phone": "0151 420 0151",
             "email": "thegroupuk@yahoo.com", "order": 1,
             "blurb": "Men's formal wear & suit hire, by appointment only.",
+            "hours_text": "By appointment only", "what_to_expect": "", "photo_url": "", "questions": [],
         }
         rw = await db.shops.insert_one(warr)
         rr = await db.shops.insert_one(runc)
         warr_id, runc_id = str(rw.inserted_id), str(rr.inserted_id)
-        # availability: Warrington Tue-Fri 11-17, Sat 10-17
         warr_hours = {
             "0": {"closed": True, "open": "11:00", "close": "17:00"},
             "1": {"closed": False, "open": "11:00", "close": "17:00"},
@@ -880,8 +1071,8 @@ async def seed():
             "5": {"closed": False, "open": "10:00", "close": "16:00"},
             "6": {"closed": True, "open": "10:00", "close": "17:00"},
         }
-        await db.availability.insert_one({"shop_id": warr_id, "hours": warr_hours, "slot_step": 30})
-        await db.availability.insert_one({"shop_id": runc_id, "hours": runc_hours, "slot_step": 30})
+        await db.availability.insert_one({"shop_id": warr_id, "hours": warr_hours, "slot_step": 30, "capacity": 1, "buffer": 0})
+        await db.availability.insert_one({"shop_id": runc_id, "hours": runc_hours, "slot_step": 30, "capacity": 1, "buffer": 0})
         wtypes = [
             {"name": "Bridal Appointment", "duration": 90, "description": "Our signature private styling session.", "active": True},
             {"name": "First Look Consultation", "duration": 60, "description": "Begin your search with expert guidance.", "active": True},

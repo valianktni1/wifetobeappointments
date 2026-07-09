@@ -12,6 +12,23 @@ const HERO = "https://images.unsplash.com/photo-1585241920473-b472eb9ffbae?q=75&
 
 const STEPS = ["Boutique", "Appointment", "Date", "Time", "Your Details"];
 
+function gcalUrl(b) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const [y, m, d] = b.date.split("-").map(Number);
+  const [hh, mm] = b.start_time.split(":").map(Number);
+  const startMin = hh * 60 + mm;
+  const endMin = startMin + (b.duration || 60);
+  const dt = (mins) => `${y}${pad(m)}${pad(d)}T${pad(Math.floor(mins / 60))}${pad(mins % 60)}00`;
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: `${b.appointment_type_name} — ${b.shop_name}`,
+    dates: `${dt(startMin)}/${dt(endMin)}`,
+    details: `Reference ${b.reference}`,
+    location: b.shop_address || b.shop_name || "",
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 function Header() {
   return (
     <header className="w-full py-6 px-6 md:px-12 flex items-center justify-between border-b" style={{ borderColor: "var(--line)", background: "var(--ivory)" }}>
@@ -96,19 +113,22 @@ export default function Booking() {
   const [slots, setSlots] = useState(null);
   const [slot, setSlot] = useState(null);
   const [form, setForm] = useState({ customer_name: "", customer_email: "", customer_phone: "", notes: "" });
+  const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(null);
+  const [waitOpen, setWaitOpen] = useState(false);
+  const [waitDone, setWaitDone] = useState(false);
 
   useEffect(() => { api.get("/shops").then((r) => setShops(r.data)).catch(() => {}); }, []);
 
   const pickShop = async (s) => {
-    setShop(s); setType(null); setDate(null); setSlot(null);
+    setShop(s); setType(null); setDate(null); setSlot(null); setAnswers({});
     try { const { data } = await api.get(`/shops/${s.id}/appointment-types`); setTypes(data); } catch { setTypes([]); }
     setStep(1);
   };
   const pickType = (t) => { setType(t); setDate(null); setSlot(null); setStep(2); };
   const pickDate = async (d) => {
-    setDate(d); setSlot(null); setSlots(null); setStep(3);
+    setDate(d); setSlot(null); setSlots(null); setStep(3); setWaitOpen(false); setWaitDone(false);
     try {
       const { data } = await api.get("/public/slots", { params: { shop_id: shop.id, date: format(d, "yyyy-MM-dd"), duration: type.duration } });
       setSlots(data.slots);
@@ -116,16 +136,37 @@ export default function Booking() {
   };
   const pickSlot = (t) => { setSlot(t); setStep(4); };
 
+  const joinWaitlist = async () => {
+    if (!form.customer_name || !form.customer_email || !form.customer_phone) {
+      toast.error("Please add your name, email and phone to join the waitlist.");
+      return;
+    }
+    try {
+      await api.post("/public/waitlist", {
+        shop_id: shop.id, appointment_type_id: type?.id, date: date ? format(date, "yyyy-MM-dd") : null,
+        customer_name: form.customer_name, customer_email: form.customer_email, customer_phone: form.customer_phone, notes: form.notes,
+      });
+      setWaitDone(true); setWaitOpen(false);
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+
   const submit = async () => {
     if (!form.customer_name || !form.customer_email || !form.customer_phone) {
       toast.error("Please complete your name, email and phone.");
       return;
     }
+    const qs = (shop?.questions || []);
+    for (const q of qs) {
+      if (q.required && !(answers[q.id] || "").toString().trim()) {
+        toast.error(`Please answer: ${q.label}`); return;
+      }
+    }
+    const answerList = qs.map((q) => ({ label: q.label, value: (answers[q.id] || "").toString() })).filter((a) => a.value);
     setSubmitting(true);
     try {
       const { data } = await api.post("/public/bookings", {
         shop_id: shop.id, appointment_type_id: type.id, date: format(date, "yyyy-MM-dd"),
-        start_time: slot, ...form,
+        start_time: slot, ...form, answers: answerList,
       });
       setConfirmed(data);
     } catch (e) {
@@ -157,6 +198,12 @@ export default function Booking() {
               <Row k="Date" v={format(new Date(confirmed.date), "EEEE d MMMM yyyy")} />
               <Row k="Time" v={confirmed.start_time} />
               <Row k="Status" v="Pending confirmation" />
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6" data-testid="add-to-calendar">
+              <a className="btn-wtb btn-ghost-wtb" data-testid="gcal-link" target="_blank" rel="noreferrer"
+                href={gcalUrl(confirmed)}>Add to Google Calendar</a>
+              <a className="btn-wtb btn-ghost-wtb" data-testid="ics-link"
+                href={`${process.env.REACT_APP_BACKEND_URL}/api/public/bookings/${confirmed.reference}/calendar.ics`}>Download .ics</a>
             </div>
             <button className="btn-wtb btn-gold" onClick={() => window.location.reload()} data-testid="book-another">Book Another</button>
             <a href={`/booking/${confirmed.reference}`} className="block mt-5 eyebrow hover:opacity-70" style={{ fontSize: "0.6rem", color: "var(--gold-deep)" }} data-testid="manage-link">Manage or reschedule this booking →</a>
@@ -196,15 +243,19 @@ export default function Booking() {
             <div className="grid md:grid-cols-2 gap-6">
               {shops.map((s) => (
                 <button key={s.id} onClick={() => pickShop(s)} data-testid={`shop-${s.slug}`}
-                  className="card-wtb p-8 text-left transition-transform hover:-translate-y-1 duration-300 group">
-                  <Eyebrow style={{ fontSize: "0.6rem" }}>{s.role_label}</Eyebrow>
-                  <h3 className="text-3xl mt-3 mb-4 group-hover:text-[var(--gold-deep)] transition-colors">{s.name}</h3>
-                  <p className="font-sans-j mb-6" style={{ color: "var(--taupe)", fontWeight: 300 }}>{s.blurb}</p>
-                  <div className="space-y-2 font-sans-j text-sm" style={{ color: "var(--ink)" }}>
-                    <div className="flex items-center gap-2"><MapPin size={15} style={{ color: "var(--gold)" }} />{s.address}</div>
-                    <div className="flex items-center gap-2"><Phone size={15} style={{ color: "var(--gold)" }} />{s.phone}</div>
+                  className="card-wtb text-left transition-transform hover:-translate-y-1 duration-300 group overflow-hidden">
+                  {s.photo_url && <img src={s.photo_url} alt={s.name} className="w-full h-40 object-cover" />}
+                  <div className="p-8">
+                    <Eyebrow style={{ fontSize: "0.6rem" }}>{s.role_label}</Eyebrow>
+                    <h3 className="text-3xl mt-3 mb-4 group-hover:text-[var(--gold-deep)] transition-colors">{s.name}</h3>
+                    <p className="font-sans-j mb-6" style={{ color: "var(--taupe)", fontWeight: 300 }}>{s.blurb}</p>
+                    <div className="space-y-2 font-sans-j text-sm" style={{ color: "var(--ink)" }}>
+                      <div className="flex items-center gap-2"><MapPin size={15} style={{ color: "var(--gold)" }} />{s.address}</div>
+                      <div className="flex items-center gap-2"><Phone size={15} style={{ color: "var(--gold)" }} />{s.phone}</div>
+                      {s.hours_text && <div className="flex items-center gap-2"><Clock size={15} style={{ color: "var(--gold)" }} />{s.hours_text}</div>}
+                    </div>
+                    <span className="inline-block mt-6 eyebrow group-hover:opacity-70" style={{ color: "var(--gold-deep)", fontSize: "0.6rem" }}>Select →</span>
                   </div>
-                  <span className="inline-block mt-6 eyebrow group-hover:opacity-70" style={{ color: "var(--gold-deep)", fontSize: "0.6rem" }}>Select →</span>
                 </button>
               ))}
             </div>
@@ -256,9 +307,31 @@ export default function Booking() {
             </div>
             {slots === null && <p className="text-center eyebrow">Finding availability…</p>}
             {slots && slots.length === 0 && (
-              <p className="font-sans-j text-center" style={{ color: "var(--taupe)" }}>
-                No availability on this date. Please choose another day.
-              </p>
+              <div className="max-w-md mx-auto text-center">
+                <p className="font-sans-j mb-6" style={{ color: "var(--taupe)" }}>
+                  No availability on this date. Please choose another day{waitDone ? "" : ", or join the waitlist and we'll be in touch if a slot frees up"}.
+                </p>
+                {waitDone ? (
+                  <p className="eyebrow" data-testid="waitlist-done" style={{ color: "var(--gold-deep)" }}>You're on the waitlist — thank you.</p>
+                ) : !waitOpen ? (
+                  <button className="btn-wtb btn-gold" onClick={() => setWaitOpen(true)} data-testid="open-waitlist">Join the Waitlist</button>
+                ) : (
+                  <div className="card-wtb p-6 text-left space-y-4" data-testid="waitlist-form">
+                    {[
+                      { k: "customer_name", l: "Full Name", t: "text" },
+                      { k: "customer_email", l: "Email", t: "email" },
+                      { k: "customer_phone", l: "Phone", t: "tel" },
+                    ].map((f) => (
+                      <div key={f.k}>
+                        <label className="field-label block mb-2">{f.l}</label>
+                        <input className="input-wtb" type={f.t} value={form[f.k]} data-testid={`wait-${f.k}`}
+                          onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} />
+                      </div>
+                    ))}
+                    <button className="btn-wtb btn-gold w-full" onClick={joinWaitlist} data-testid="submit-waitlist">Join Waitlist</button>
+                  </div>
+                )}
+              </div>
             )}
             {slots && slots.length > 0 && (
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3 max-w-2xl mx-auto" data-testid="slot-grid">
@@ -309,6 +382,24 @@ export default function Booking() {
                   data-testid="input-notes"
                   onChange={(e) => setForm({ ...form, notes: e.target.value })} />
               </div>
+              {(shop?.questions || []).map((q) => (
+                <div key={q.id} data-testid={`question-field-${q.id}`}>
+                  <label className="field-label block mb-2">{q.label}{q.required ? " *" : ""}</label>
+                  {q.type === "textarea" ? (
+                    <textarea className="input-wtb" rows={2} value={answers[q.id] || ""}
+                      onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
+                  ) : q.type === "select" ? (
+                    <select className="input-wtb" value={answers[q.id] || ""}
+                      onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}>
+                      <option value="">Please choose…</option>
+                      {(q.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input-wtb" type={q.type === "date" ? "date" : "text"} value={answers[q.id] || ""}
+                      onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
+                  )}
+                </div>
+              ))}
             </div>
             <div className="flex items-center justify-between mt-10">
               <button className="btn-wtb btn-ghost-wtb" onClick={back} data-testid="back-btn">← Back</button>

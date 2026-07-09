@@ -28,6 +28,19 @@ export default function Bookings() {
 
   const openDetail = (b) => { setActive(b); setResched({ date: b.date, start_time: b.start_time, admin_notes: b.admin_notes || "" }); };
 
+  const exportCsv = async () => {
+    try {
+      const params = {};
+      if (filters.shop_id) params.shop_id = filters.shop_id;
+      if (filters.status) params.status = filters.status;
+      const res = await api.get("/bookings/export.csv", { params, responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url; a.download = "wifetobe-bookings.csv"; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+
   const saveResched = async () => {
     try {
       await api.patch(`/bookings/${active.id}`, resched);
@@ -37,7 +50,9 @@ export default function Bookings() {
 
   return (
     <div className="reveal-up">
-      <PageHead eyebrow="Manage" title="Bookings" />
+      <PageHead eyebrow="Manage" title="Bookings">
+        <button className="btn-wtb btn-ghost-wtb" onClick={exportCsv} data-testid="export-csv">Export CSV</button>
+      </PageHead>
       <Panel className="mb-6">
         <div className="flex flex-wrap gap-4 items-end">
           <Field label="Boutique">
@@ -98,6 +113,13 @@ export default function Bookings() {
               <Info k="Appointment" v={active.appointment_type_name} />
             </div>
             {active.notes && <div><span className="field-label block mb-1">Customer Notes</span><p className="font-sans-j text-sm">{active.notes}</p></div>}
+            {active.answers && active.answers.length > 0 && (
+              <div data-testid="booking-answers"><span className="field-label block mb-2">Responses</span>
+                <div className="space-y-1">{active.answers.map((a, i) => (
+                  <div key={i} className="font-sans-j text-sm"><b>{a.label}:</b> {a.value}</div>
+                ))}</div>
+              </div>
+            )}
 
             <div className="border-t pt-5" style={{ borderColor: "var(--line)" }}>
               <p className="field-label mb-3">Reschedule / Edit</p>

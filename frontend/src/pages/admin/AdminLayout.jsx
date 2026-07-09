@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Clock, Tags, Users, Settings as Cog, UserCircle, LogOut } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Clock, Tags, Users, Settings as Cog, UserCircle, LogOut, Sliders, ListChecks } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Wordmark, DesignerCredit } from "@/components/Brand";
 const NAV = [
@@ -8,6 +8,8 @@ const NAV = [
   { to: "/admin/bookings", icon: CalendarDays, label: "Bookings" },
   { to: "/admin/availability", icon: Clock, label: "Availability" },
   { to: "/admin/appointment-types", icon: Tags, label: "Appointments" },
+  { to: "/admin/waitlist", icon: ListChecks, label: "Waitlist" },
+  { to: "/admin/customise", icon: Sliders, label: "Customise" },
   { to: "/admin/admins", icon: Users, label: "Admins", superadmin: true },
   { to: "/admin/settings", icon: Cog, label: "Settings", superadmin: true },
   { to: "/admin/account", icon: UserCircle, label: "My Account" },
