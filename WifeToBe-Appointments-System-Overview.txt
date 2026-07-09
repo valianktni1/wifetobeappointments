@@ -1,0 +1,193 @@
+========================================================================
+  WIFE TO BE — APPOINTMENTS MANAGEMENT SYSTEM
+  Full System Overview & Capability Sheet
+========================================================================
+  Prepared for: Weddings By Mark
+  Live at: https://appointments.wifetobe.co.uk  (self-hosted)
+  Booking buttons on wifetobe.co.uk forward customers straight here.
+========================================================================
+
+
+1. WHAT IT IS  (in one line)
+------------------------------------------------------------------------
+A private, self-hosted appointment-booking and management system for the
+Wife To Be bridal group — covering BOTH boutiques (Warrington & Runcorn)
+— with an elegant customer-facing booking site and a full staff admin
+panel, all styled to match the main website exactly.
+
+It is no longer "just a booking form". It is a complete, brandable
+appointment MANAGEMENT SYSTEM you fully own and host yourself.
+
+
+2. THE TWO SIDES OF THE SYSTEM
+------------------------------------------------------------------------
+A) THE CUSTOMER SIDE  (public, no login)
+   A calm, luxury, step-by-step booking journey:
+     1. Choose boutique (Warrington / Runcorn) — each with its own photo,
+        address, phone and opening hours.
+     2. Choose an appointment type (each with a set length: 30/60/90/120
+        minutes).
+     3. Pick a date on an elegant calendar (closed days are disabled).
+     4. Pick an available time slot (only genuinely free times show).
+     5. Enter their details + answer any custom questions the shop set.
+     6. Get an instant on-screen confirmation with a unique reference,
+        plus one-tap "Add to Google Calendar" and "Download .ics".
+   Customers can also self-serve later: a "Manage / reschedule" link lets
+   them view, reschedule or cancel their own appointment by reference — no
+   phone calls needed.
+   If a date is full or closed, they can JOIN A WAITLIST instead of
+   leaving empty-handed.
+
+B) THE STAFF SIDE  (secure admin panel at /admin)
+   Everything the team needs to run the diary for both shops.
+
+
+3. USER ROLES & ACCESS
+------------------------------------------------------------------------
+- SUPERADMIN (the owner): full control + the only one who can create/
+  remove staff admins and edit global settings.
+- ADMINS (up to 4): full day-to-day control of BOTH boutiques.
+- Each account:
+    * Logs in with email + password.
+    * Can change their OWN password and email themselves.
+    * Can turn on optional Google Authenticator 2FA (default OFF).
+    * Can set up their OWN outgoing email (SMTP) to send from their
+      mailbox — with a "send test" button.
+- The superadmin account can never be deleted or locked out (safety).
+
+
+4. WHAT ADMINS CAN DO
+------------------------------------------------------------------------
+DASHBOARD
+  - Today's appointments at a glance, plus counts: upcoming, pending,
+    confirmed, all-time, waitlist, and per-boutique totals.
+
+BOOKINGS
+  - See every booking, filter by boutique and status.
+  - Open any booking to view full details + the customer's answers.
+  - Confirm / Complete / Cancel, add private admin notes, or reschedule
+    (change date & time) — with a clear, floating, easy-to-close popup.
+  - Export all bookings (with current filters) to a CSV spreadsheet.
+
+AVAILABILITY (per boutique)
+  - Set weekly opening hours per day (open/close or closed).
+  - Set the slot interval (15/30/60 min).
+  - Set CAPACITY = how many appointments can run at once (e.g. 2 fitting
+    rooms) and a BUFFER (gap between appointments for cleardown).
+  - Block whole days (holidays) OR just part of a day (e.g. lunch 1–2pm).
+
+APPOINTMENT TYPES (per boutique)
+  - Create/edit/remove the services offered, each with a 30/60/90/120
+    minute length, description, and show/hide toggle.
+
+CUSTOMISE (per boutique)
+  - Add a photo, opening-hours text, an intro blurb and a "what to expect"
+    note shown to customers.
+  - Build CUSTOM BOOKING QUESTIONS (short text, long text, date, or
+    dropdown; each optional or required) — e.g. "Wedding date", "Dress
+    size", "Budget", "How did you hear about us?".
+
+WAITLIST
+  - See everyone who asked to be notified, mark them contacted, or remove.
+
+MY ACCOUNT
+  - Change name/email, change password, set up 2FA, configure personal
+    SMTP sending + send a test email.
+
+SETTINGS (superadmin only)
+  - Global business email + SMTP fallback.
+  - Notification toggles (all default OFF):
+      * email customer on new request
+      * email the boutique on new request
+      * email customer when confirmed
+      * send a reminder 24h before the appointment
+  - The iCal subscription URL (add to Google/Apple Calendar to see all
+    upcoming bookings automatically).
+
+
+5. SMART BOOKING ENGINE (behind the scenes)
+------------------------------------------------------------------------
+- Only ever offers slots that are genuinely free, respecting opening
+  hours, capacity, buffers, whole-day and part-day blocks, and existing
+  bookings.
+- Prevents double-booking, even if two people book at the same moment.
+- Reschedules re-check availability so nothing clashes.
+
+
+6. NOTIFICATIONS & EMAIL
+------------------------------------------------------------------------
+- Confirmation, "shop alert", confirmed, and 24h-reminder emails.
+- Sends from the acting admin's own mailbox, or the global business
+  mailbox — whichever is configured.
+- All notifications are OFF by default and turned on per type in Settings.
+- Nothing is sent until an SMTP mailbox is set up (no surprise emails).
+
+
+7. CALENDAR INTEGRATION
+------------------------------------------------------------------------
+- Customers: "Add to Google Calendar" + downloadable .ics on confirmation.
+- Staff: subscribe Google/Apple Calendar to the iCal feed URL to see all
+  upcoming appointments across both shops, auto-updating.
+
+
+8. DESIGN & EXPERIENCE
+------------------------------------------------------------------------
+- Pixel-matched to wifetobe.co.uk: same fonts (Cormorant Garamond, Jost,
+  Pinyon Script logo), ivory/champagne/gold palette, and elegant tone.
+- Fully mobile-friendly on every device (phones, tablets, desktop).
+- Footer on every page: "Site Designed and Hosted By Weddings By Mark".
+- No third-party branding anywhere.
+
+
+9. SECURITY
+------------------------------------------------------------------------
+- Passwords stored hashed (bcrypt) — never in plain text.
+- Secure token-based login sessions (JWT).
+- Optional 2FA (Google Authenticator / TOTP) per account.
+- SMTP passwords and secrets are never exposed by the system.
+- Self-hosted: your data stays on your own hardware.
+
+
+10. TECHNOLOGY (for the technically curious)
+------------------------------------------------------------------------
+- Frontend: React (served via Nginx).
+- Backend: FastAPI (Python).
+- Database: MongoDB.
+- Packaged as Docker containers, run with Docker Compose (Dockge).
+
+
+11. HOW IT'S HOSTED / DEPLOYED
+------------------------------------------------------------------------
+- Runs entirely on your own TrueNAS server — you own all data.
+- Delivered as a Docker Compose stack (mongo + backend + frontend + a
+  nightly database backup container).
+- Served on port 30039, behind your Nginx reverse proxy with SSL, at
+  appointments.wifetobe.co.uk.
+- Nightly automatic database backups saved to your storage; 30 days kept.
+- Code lives in a GitHub repo; updates = push + rebuild.
+
+
+12. WHAT MAKES IT "PLUGGABLE" / RESELLABLE
+------------------------------------------------------------------------
+- Two-shop ready out of the box; easily themed to any brand.
+- Everything the shop owner needs is self-service (staff, hours,
+  services, questions, photos, emails) — no developer needed day to day.
+- Self-hosted = no per-booking fees, no monthly SaaS costs, full data
+  ownership.
+- Custom questions + branding controls make it re-skinnable for other
+  boutiques/businesses with minimal effort.
+
+
+13. ROADMAP / OPTIONAL ADD-ONS (not yet enabled)
+------------------------------------------------------------------------
+- SMS reminders (Twilio) — big no-show reducer.
+- Deposits/payments at booking (Stripe).
+- Staff/consultant assignment per appointment.
+- Post-appointment automatic review requests.
+- Analytics (busiest times, conversion, no-show rate).
+
+
+========================================================================
+  Prepared by E1 for Weddings By Mark.
+  Everything above is live and working; optional add-ons on request.
+========================================================================
