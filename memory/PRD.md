@@ -42,6 +42,19 @@ Bridal boutique group (wifetobe.co.uk, hosted on Hostinger) wants a self-hosted 
 
 ## Backlog / Remaining
 - P1: Wire/verify automatic emails once SMTP configured; add reminder emails (24h before).
+
+## Enhancements (2026-07-10) — all additive, backward-compatible
+- Branded HTML emails: elegant, brand-matched templates with an inline "Wife To Be" logo (embedded via CID, no hosting needed). Applied to booking-received, shop-alert, confirmed, 24h-reminder and SMTP-test emails. Logo stored at /app/backend/wtb_logo.png (must be committed to GitHub for self-host builds).
+- New "No-show" booking status (badge + button + status filter) so no-shows are tracked accurately.
+- Analytics dashboard (/admin/analytics, GET /api/analytics): busiest days, busiest times, bookings per boutique, no-show rate, and "where brides come from" — with per-boutique filter. CSS bar charts (no chart lib).
+- Recurring/multi-visit follow-up bookings: from a booking's detail, staff add a follow-up (label/type/date/time); linked via series_id and slot-validated. POST /api/bookings/{id}/follow-up, GET /api/bookings/{id}/series. Series shown in booking modal.
+- Customer history (/admin/customers, GET /api/customers + /api/customers/{email}): distinct customers grouped by email with search; detail modal shows full visit history, notes and answers.
+- "How did you hear about us?" dropdown (id 'source') auto-added to both shops' booking questions; feeds the Analytics source chart.
+- Downloadable docs served via GET /api/download/pitch and /api/download/overview.
+- Verified: iteration_9 (backend 15/15, frontend 100%, zero bugs).
+
+## Backlog / Remaining (old)
+- P1: Wire/verify automatic emails once SMTP configured; add reminder emails (24h before).
 - P2: Public booking rate limiting/captcha; reschedule slot re-validation in UI; customer self-manage booking via reference link.
 - P2: Split server.py into routers; migrate to FastAPI lifespan; per-admin activity log.
 
