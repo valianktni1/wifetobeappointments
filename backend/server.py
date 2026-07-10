@@ -170,7 +170,56 @@ def manage_link(settings: dict, ref: str) -> str:
     return f"\n\nView or reschedule your appointment: {base}/booking/{ref}" if base else ""
 
 
-def _smtp_send(cfg: dict, to: str, subject: str, body: str) -> bool:
+def manage_url(settings: dict, ref: str) -> Optional[str]:
+    base = (settings.get("public_url") or "").rstrip("/")
+    return f"{base}/booking/{ref}" if base else None
+
+
+LOGO_PATH = ROOT_DIR / "wtb_logo.png"
+try:
+    _LOGO_BYTES = LOGO_PATH.read_bytes()
+except Exception:
+    _LOGO_BYTES = None
+
+
+def render_email(heading: str, paragraphs: List[str], cta: Optional[dict] = None) -> str:
+    """Elegant, brand-matched HTML email with the Wife To Be wordmark."""
+    logo = ('<img src="cid:wtblogo" alt="Wife To Be" '
+            'style="max-width:230px;height:auto;margin:0 auto;display:block;">') if _LOGO_BYTES else \
+           ('<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:34px;'
+            'color:#b08d57;font-style:italic;">Wife To Be</div>')
+    body_html = "".join(
+        f'<p style="margin:0 0 16px;font-family:Georgia,serif;font-size:16px;line-height:1.7;color:#3d3833;">{p}</p>'
+        for p in paragraphs
+    )
+    cta_html = ""
+    if cta and cta.get("url"):
+        cta_html = (
+            f'<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px auto 24px;">'
+            f'<tr><td style="background:#b08d57;">'
+            f'<a href="{cta["url"]}" style="display:inline-block;padding:14px 34px;font-family:Arial,sans-serif;'
+            f'font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#fff;text-decoration:none;">'
+            f'{cta.get("label","View")}</a></td></tr></table>'
+        )
+    return f"""<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f3ee;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f3ee;padding:32px 12px;">
+<tr><td align="center">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid #ece4d8;">
+<tr><td style="padding:38px 40px 10px;text-align:center;border-bottom:1px solid #ece4d8;">{logo}
+<div style="font-family:Arial,sans-serif;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#b08d57;margin-top:14px;">Bridal Appointments</div>
+</td></tr>
+<tr><td style="padding:36px 40px 8px;">
+<h1 style="margin:0 0 22px;font-family:Georgia,serif;font-weight:normal;font-size:26px;color:#2a2521;">{heading}</h1>
+{body_html}{cta_html}
+</td></tr>
+<tr><td style="padding:22px 40px 34px;border-top:1px solid #ece4d8;text-align:center;">
+<p style="margin:0;font-family:Georgia,serif;font-size:15px;color:#b08d57;">With love, Wife To Be</p>
+<p style="margin:10px 0 0;font-family:Arial,sans-serif;font-size:10px;letter-spacing:1px;color:#b3aa9c;">Warrington &amp; Runcorn Boutiques</p>
+</td></tr>
+</table></td></tr></table></body></html>"""
+
+
+def _smtp_send(cfg: dict, to: str, subject: str, body: str, html: Optional[str] = None) -> bool:
     if not cfg or not cfg.get("smtp_host") or not cfg.get("from_addr"):
         logger.info("Email skipped (SMTP not configured): %s -> %s", subject, to)
         return False
@@ -180,6 +229,10 @@ def _smtp_send(cfg: dict, to: str, subject: str, body: str) -> bool:
         msg["From"] = f"{cfg.get('from_name') or 'Wife To Be'} <{cfg['from_addr']}>"
         msg["To"] = to
         msg.set_content(body)
+        if html:
+            msg.add_alternative(html, subtype="html")
+            if _LOGO_BYTES:
+                msg.get_payload()[1].add_related(_LOGO_BYTES, "image", "png", cid="wtblogo")
         with smtplib.SMTP(cfg["smtp_host"], int(cfg.get("smtp_port", 587)), timeout=15) as server:
             server.starttls()
             if cfg.get("smtp_user"):
@@ -483,7 +536,11 @@ async def test_my_email_settings(body: TestEmailIn, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="Please save your SMTP host and details first")
     ok = _smtp_send(cfg, body.to, "Wife To Be — test email",
                     f"This is a test email sent from your Wife To Be account ({cfg['from_addr']}).\n\n"
-                    f"If you've received this, your outgoing email is configured correctly.")
+                    f"If you've received this, your outgoing email is configured correctly.",
+                    html=render_email(
+                        "Your email is working",
+                        [f"This is a test email sent from your Wife To Be account (<strong>{cfg['from_addr']}</strong>).",
+                         "If you can see this beautifully formatted message, your outgoing email is configured correctly and ready to send booking notifications."]))
     if not ok:
         raise HTTPException(status_code=400, detail="Could not send — please check your SMTP host, port, username and password")
     return {"ok": True}
@@ -796,14 +853,25 @@ async def create_booking(body: BookingIn):
     settings = await get_settings()
     cfg = await resolve_cfg()
     when = f"{body.date} at {body.start_time}"
+    murl = manage_url(settings, ref)
     if settings.get("notify_customer_on_booking"):
         _smtp_send(cfg, doc["customer_email"], "Your Wife To Be appointment request",
                    f"Dear {doc['customer_name']},\n\nWe have received your request for a {atype['name']} at our {shop['name']} boutique on {when}. "
-                   f"Your reference is {ref}. We will confirm your appointment shortly.{manage_link(settings, ref)}\n\nWith love,\nWife To Be")
+                   f"Your reference is {ref}. We will confirm your appointment shortly.{manage_link(settings, ref)}\n\nWith love,\nWife To Be",
+                   html=render_email(
+                       f"Thank you, {doc['customer_name'].split(' ')[0]}",
+                       [f"We've received your request for a <strong>{atype['name']}</strong> at our <strong>{shop['name']}</strong> boutique on <strong>{when}</strong>.",
+                        f"Your booking reference is <strong>{ref}</strong>. We'll be in touch very shortly to confirm your appointment.",
+                        "We can't wait to welcome you."],
+                       cta={"url": murl, "label": "View My Appointment"} if murl else None))
     shop_to = settings.get("business_email") or (cfg or {}).get("from_addr")
     if settings.get("notify_shop_on_booking") and shop_to:
         _smtp_send(cfg, shop_to, f"New booking request — {shop['name']}",
-                   f"{doc['customer_name']} ({doc['customer_email']}, {doc['customer_phone']}) requested a {atype['name']} on {when}. Ref {ref}.")
+                   f"{doc['customer_name']} ({doc['customer_email']}, {doc['customer_phone']}) requested a {atype['name']} on {when}. Ref {ref}.",
+                   html=render_email(
+                       "New Booking Request",
+                       [f"<strong>{doc['customer_name']}</strong> has requested a <strong>{atype['name']}</strong> at <strong>{shop['name']}</strong> on <strong>{when}</strong>.",
+                        f"Email: {doc['customer_email']}<br>Phone: {doc['customer_phone']}<br>Reference: {ref}"]))
     return clean(doc)
 
 
@@ -917,7 +985,7 @@ async def update_booking(booking_id: str, body: BookingUpdateIn, user: dict = De
         raise HTTPException(status_code=404, detail="Booking not found")
     update = {}
     if body.status:
-        if body.status not in ("pending", "confirmed", "cancelled", "completed"):
+        if body.status not in ("pending", "confirmed", "cancelled", "completed", "no_show"):
             raise HTTPException(status_code=400, detail="Invalid status")
         update["status"] = body.status
     if body.date:
@@ -933,10 +1001,160 @@ async def update_booking(booking_id: str, body: BookingUpdateIn, user: dict = De
         settings = await get_settings()
         if settings.get("notify_on_confirm"):
             cfg = await resolve_cfg(user)
+            murl = manage_url(settings, doc["reference"])
             _smtp_send(cfg, doc["customer_email"], "Your Wife To Be appointment is confirmed",
                        f"Dear {doc['customer_name']},\n\nYour {doc['appointment_type_name']} at our {doc['shop_name']} boutique on "
-                       f"{doc['date']} at {doc['start_time']} is now confirmed. Reference {doc['reference']}.{manage_link(settings, doc['reference'])}\n\nWe can't wait to see you.\nWife To Be")
+                       f"{doc['date']} at {doc['start_time']} is now confirmed. Reference {doc['reference']}.{manage_link(settings, doc['reference'])}\n\nWe can't wait to see you.\nWife To Be",
+                       html=render_email(
+                           f"You're confirmed, {doc['customer_name'].split(' ')[0]}",
+                           [f"Your <strong>{doc['appointment_type_name']}</strong> at our <strong>{doc['shop_name']}</strong> boutique is now confirmed for:",
+                            f"<strong>{doc['date']} at {doc['start_time']}</strong>",
+                            f"Reference: <strong>{doc['reference']}</strong>. We can't wait to see you."],
+                           cta={"url": murl, "label": "View My Appointment"} if murl else None))
     return clean(doc)
+
+
+class FollowUpIn(BaseModel):
+    date: str
+    start_time: str
+    appointment_type_id: Optional[str] = None
+    label: Optional[str] = ""  # e.g. "2nd fitting", "Final fitting"
+
+
+@api.post("/bookings/{booking_id}/follow-up")
+async def create_follow_up(booking_id: str, body: FollowUpIn, user: dict = Depends(get_current_user)):
+    parent = await db.bookings.find_one({"_id": oid(booking_id)})
+    if not parent:
+        raise HTTPException(status_code=404, detail="Original booking not found")
+    type_id = body.appointment_type_id or parent["appointment_type_id"]
+    atype = await db.appointment_types.find_one({"_id": oid(type_id)})
+    if not atype:
+        raise HTTPException(status_code=404, detail="Appointment type not found")
+    duration = atype["duration"]
+    avail = await _compute_slots(parent["shop_id"], body.date, duration)
+    if body.start_time not in avail.get("slots", []):
+        raise HTTPException(status_code=409, detail="That time slot is no longer available")
+    series_id = parent.get("series_id") or str(parent["_id"])
+    if not parent.get("series_id"):
+        await db.bookings.update_one({"_id": parent["_id"]}, {"$set": {"series_id": series_id}})
+    ref = "WTB-" + base64.b32encode(os.urandom(5)).decode().rstrip("=")[:8]
+    doc = {
+        "reference": ref, "shop_id": parent["shop_id"], "shop_name": parent["shop_name"],
+        "shop_address": parent.get("shop_address", ""),
+        "appointment_type_id": type_id, "appointment_type_name": atype["name"], "duration": duration,
+        "date": body.date, "start_time": body.start_time,
+        "customer_name": parent["customer_name"], "customer_email": parent["customer_email"],
+        "customer_phone": parent["customer_phone"],
+        "notes": (body.label or "Follow-up appointment"), "answers": [], "admin_notes": "",
+        "status": "confirmed", "reminder_sent": False, "series_id": series_id,
+        "created_at": now_utc().isoformat(),
+    }
+    res = await db.bookings.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return clean(doc)
+
+
+@api.get("/bookings/{booking_id}/series")
+async def booking_series(booking_id: str, user: dict = Depends(get_current_user)):
+    b = await db.bookings.find_one({"_id": oid(booking_id)})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    series_id = b.get("series_id") or str(b["_id"])
+    docs = await db.bookings.find({"series_id": series_id}).sort([("date", 1), ("start_time", 1)]).to_list(100)
+    return [clean(d) for d in docs]
+
+
+# ------------------------------------------------------------------ analytics
+@api.get("/analytics")
+async def analytics(user: dict = Depends(get_current_user), shop_id: Optional[str] = None):
+    q: dict = {}
+    if shop_id:
+        q["shop_id"] = shop_id
+    docs = await db.bookings.find(q).to_list(20000)
+    today = datetime.now().date().isoformat()
+    weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    by_weekday = {w: 0 for w in weekday_names}
+    by_hour: dict = {}
+    by_shop: dict = {}
+    by_source: dict = {}
+    completed = no_show = 0
+    active = 0
+    for b in docs:
+        status = b.get("status")
+        if status == "cancelled":
+            continue
+        active += 1
+        try:
+            d = datetime.strptime(b["date"], "%Y-%m-%d").date()
+            by_weekday[weekday_names[d.weekday()]] += 1
+        except Exception:
+            pass
+        hh = (b.get("start_time") or "")[:2]
+        if hh:
+            by_hour[hh] = by_hour.get(hh, 0) + 1
+        sn = b.get("shop_name", "Unknown")
+        by_shop[sn] = by_shop.get(sn, 0) + 1
+        for a in (b.get("answers") or []):
+            if a.get("label") == "How did you hear about us?" and a.get("value"):
+                by_source[a["value"]] = by_source.get(a["value"], 0) + 1
+        if status == "completed":
+            completed += 1
+        elif status == "no_show":
+            no_show += 1
+    total_attended = completed + no_show
+    no_show_rate = round((no_show / total_attended) * 100) if total_attended else 0
+    hours_sorted = [{"hour": f"{h}:00", "count": c} for h, c in sorted(by_hour.items())]
+    return {
+        "total": active,
+        "by_weekday": [{"day": w, "count": by_weekday[w]} for w in weekday_names],
+        "by_hour": hours_sorted,
+        "by_shop": [{"shop": k, "count": v} for k, v in sorted(by_shop.items(), key=lambda x: -x[1])],
+        "by_source": [{"source": k, "count": v} for k, v in sorted(by_source.items(), key=lambda x: -x[1])],
+        "completed": completed, "no_show": no_show, "no_show_rate": no_show_rate,
+    }
+
+
+# ------------------------------------------------------------------ customers
+@api.get("/customers")
+async def list_customers(user: dict = Depends(get_current_user), q: Optional[str] = None):
+    docs = await db.bookings.find({}).sort([("date", -1)]).to_list(20000)
+    people: dict = {}
+    for b in docs:
+        email = (b.get("customer_email") or "").lower()
+        if not email:
+            continue
+        p = people.setdefault(email, {"email": email, "name": b.get("customer_name", ""),
+                                      "phone": b.get("customer_phone", ""), "total": 0,
+                                      "last_date": "", "last_shop": ""})
+        p["total"] += 1
+        if b.get("date", "") > p["last_date"]:
+            p["last_date"] = b.get("date", "")
+            p["last_shop"] = b.get("shop_name", "")
+            p["name"] = b.get("customer_name", "") or p["name"]
+            p["phone"] = b.get("customer_phone", "") or p["phone"]
+    rows = list(people.values())
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in r["name"].lower() or ql in r["email"] or ql in (r["phone"] or "")]
+    rows.sort(key=lambda r: r["last_date"], reverse=True)
+    return rows
+
+
+@api.get("/customers/{email}")
+async def customer_detail(email: str, user: dict = Depends(get_current_user)):
+    em = email.lower().strip()
+    docs = await db.bookings.find({"customer_email": em}).sort([("date", -1), ("start_time", -1)]).to_list(500)
+    if not docs:
+        raise HTTPException(status_code=404, detail="No bookings found for this customer")
+    latest = docs[0]
+    return {
+        "email": em,
+        "name": latest.get("customer_name", ""),
+        "phone": latest.get("customer_phone", ""),
+        "total": len(docs),
+        "bookings": [clean(d) for d in docs],
+    }
+
 
 
 # ------------------------------------------------------------------ waitlist
@@ -1061,6 +1279,20 @@ async def seed():
     await db.availability.update_many({"capacity": {"$exists": False}}, {"$set": {"capacity": 1}})
     await db.availability.update_many({"buffer": {"$exists": False}}, {"$set": {"buffer": 0}})
 
+    # add "How did you hear about us?" question to shops that don't have it yet (additive)
+    SOURCE_Q = {
+        "id": "source",
+        "label": "How did you hear about us?",
+        "type": "dropdown",
+        "options": ["Instagram", "Facebook", "Google Search", "Friend / Word of Mouth", "Wedding Fair", "Walk-in / Passing", "Other"],
+        "required": False,
+    }
+    async for shop in db.shops.find({}):
+        qs = shop.get("questions") or []
+        if not any((q.get("id") == "source" or q.get("label") == SOURCE_Q["label"]) for q in qs):
+            qs.append(SOURCE_Q)
+            await db.shops.update_one({"_id": shop["_id"]}, {"$set": {"questions": qs}})
+
     if await db.shops.count_documents({}) == 0:
         warr = {
             "name": "Warrington Boutique", "slug": "warrington", "role_label": "Wedding Dresses",
@@ -1134,9 +1366,16 @@ async def reminder_loop():
                     except Exception:
                         continue
                     if lo <= dt <= hi:
+                        murl = manage_url(settings, b["reference"])
                         sent = _smtp_send(cfg, b["customer_email"], "Your Wife To Be appointment is tomorrow",
                                    f"Dear {b['customer_name']},\n\nA gentle reminder of your {b['appointment_type_name']} at our {b['shop_name']} boutique "
-                                   f"tomorrow, {b['date']} at {b['start_time']}. Reference {b['reference']}.{manage_link(settings, b['reference'])}\n\nWe look forward to seeing you.\nWife To Be")
+                                   f"tomorrow, {b['date']} at {b['start_time']}. Reference {b['reference']}.{manage_link(settings, b['reference'])}\n\nWe look forward to seeing you.\nWife To Be",
+                                   html=render_email(
+                                       "See you tomorrow",
+                                       [f"Dear {b['customer_name'].split(' ')[0]}, a gentle reminder of your <strong>{b['appointment_type_name']}</strong> at our <strong>{b['shop_name']}</strong> boutique tomorrow:",
+                                        f"<strong>{b['date']} at {b['start_time']}</strong>",
+                                        f"Reference: <strong>{b['reference']}</strong>. We look forward to welcoming you."],
+                                       cta={"url": murl, "label": "View My Appointment"} if murl else None))
                         if sent:
                             await db.bookings.update_one({"_id": b["_id"]}, {"$set": {"reminder_sent": True}})
         except Exception as e:

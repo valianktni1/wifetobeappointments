@@ -1,0 +1,27 @@
+{
+  "summary": "Verified all 5 new features + regression for the Wife To Be app. Backend pytest 15/15 PASS covering: (1) branded HTML render_email() path — no crash on request; (2) 'How did you hear about us?' question auto-seeded on both Warrington & Runcorn with id 'source'; (3) GET /api/analytics returns total/by_weekday(7)/by_hour/by_shop/by_source/completed/no_show/no_show_rate, filters by ?shop_id; (4) PATCH /api/bookings/{id} accepts status='no_show' and status filter ?status=no_show works; (5) POST /api/bookings/{id}/follow-up creates a linked booking sharing series_id (parent back-filled), GET /api/bookings/{id}/series returns >=2 linked bookings, invalid slot -> 409, missing parent -> 404; (6) GET /api/customers groups by email with totals + search filter (empty on no match), GET /api/customers/{email} returns full history (with answers persisted, including source='Instagram'), 404 for unknown email; regression: confirm/complete/cancel PATCH + CSV export still work with correct headers and content-type. Frontend UI verified end-to-end via Playwright: login OK via Sign In button; /admin/analytics shows KPI cards (an-total/an-completed/an-noshow/an-noshow-rate) and 4 bar charts (chart-weekday/hour/shop/source) plus per-shop filter; /admin/customers lists 17 grouped customers, search filter narrows to 1 for 'test_iter9', customer-history modal opens with source answer visible; /admin/bookings modal exposes noshow-booking button (purple), status filter includes 'no-show' option, add-follow-up reveals follow-up-form with label/type/date/time inputs and cancel-follow-up works; booking-answers section renders customer's source answer.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9_features.py",
+    "/app/test_reports/pytest/iteration9.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py analytics endpoint uses datetime.now().date() (naive local) — same tz caveat as iteration_8 report. Not a functional blocker.",
+    "GET /api/customers scans ALL bookings (up to 20000) in memory each call; consider MongoDB aggregation ($group by customer_email) once dataset grows.",
+    "GET /api/analytics also loads up to 20000 bookings in memory; fine at current scale but would benefit from aggregation pipeline.",
+    "server.py is now 1405 lines — earlier suggestion to split into routers stands (auth, shops, bookings, calendar, analytics, customers).",
+    "POST /bookings/{id}/follow-up does not enforce a shop-scoped permission for non-superadmins — same broader issue flagged in iteration_8 for CSV export."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9_features.py (new)"
+  ],
+  "success_rate": {"backend": "15/15 (100%)", "frontend": "100% on the review-request scope"},
+  "test_credentials": "superadmin@wifetobe.co.uk / WifeToBe2026!",
+  "seed_data_creation": "Test booking created for TEST_Iter9 Customer / test_iter9@example.com with a follow-up in the same series. Cleanup routine cancels all such bookings at end of module (bookings become status='cancelled', not deleted).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Testids for new pages: analytics-shop, an-total, an-completed, an-noshow, an-noshow-rate, chart-weekday/hour/shop/source; customer-search, customers-table, customer-row-<email>, customer-modal, customer-history, close-customer-modal; add-follow-up, follow-up-form, fu-label, fu-type, fu-date, fu-time, save-follow-up, cancel-follow-up, booking-series, noshow-booking, booking-answers. Public booking flow's 'How did you hear about us?' dropdown is rendered from shop.questions where q.id=='source' (seeded on startup for existing shops). Follow-up creation validates availability via _compute_slots — pick a slot from GET /api/public/slots to guarantee 200; any arbitrary time returns 409. Email SMTP is intentionally not configured so all outbound is logged and returns False (not a bug).",
+  "rca of the issue": "No product bugs found this iteration."
+}

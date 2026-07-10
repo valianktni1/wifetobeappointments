@@ -16,6 +16,8 @@ import Settings from "@/pages/admin/Settings";
 import Account from "@/pages/admin/Account";
 import Customise from "@/pages/admin/Customise";
 import Waitlist from "@/pages/admin/Waitlist";
+import Analytics from "@/pages/admin/Analytics";
+import Customers from "@/pages/admin/Customers";
 
 function Protected({ children }) {
   const { user, checking } = useAuth();
@@ -38,6 +40,8 @@ function App() {
             <Route path="/admin" element={<Protected><AdminLayout /></Protected>}>
               <Route index element={<Dashboard />} />
               <Route path="bookings" element={<Bookings />} />
+              <Route path="customers" element={<Customers />} />
+              <Route path="analytics" element={<Analytics />} />
               <Route path="availability" element={<Availability />} />
               <Route path="appointment-types" element={<AppointmentTypes />} />
               <Route path="customise" element={<Customise />} />

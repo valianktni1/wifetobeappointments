@@ -77,11 +77,12 @@ export function StatusBadge({ status }) {
     confirmed: { bg: "#DCEAD9", c: "#3f6b39" },
     cancelled: { bg: "#F0DAD6", c: "#9a4a3f" },
     completed: { bg: "var(--ivory-2)", c: "var(--taupe)" },
+    no_show: { bg: "#EADFF0", c: "#6b3f8a" },
   };
   const s = map[status] || map.pending;
   return (
     <span className="eyebrow px-3 py-1 inline-block" style={{ background: s.bg, color: s.c, fontSize: "0.55rem" }} data-testid={`status-${status}`}>
-      {status}
+      {status === "no_show" ? "no-show" : status}
     </span>
   );
 }

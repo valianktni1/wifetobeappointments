@@ -1,11 +1,13 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Clock, Tags, Users, Settings as Cog, UserCircle, LogOut, Sliders, ListChecks } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Clock, Tags, Users, Settings as Cog, UserCircle, LogOut, Sliders, ListChecks, BarChart3, Contact } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Wordmark, DesignerCredit } from "@/components/Brand";
 const NAV = [
   { to: "/admin", icon: LayoutDashboard, label: "Dashboard", end: true },
   { to: "/admin/bookings", icon: CalendarDays, label: "Bookings" },
+  { to: "/admin/customers", icon: Contact, label: "Customers" },
+  { to: "/admin/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/admin/availability", icon: Clock, label: "Availability" },
   { to: "/admin/appointment-types", icon: Tags, label: "Appointments" },
   { to: "/admin/waitlist", icon: ListChecks, label: "Waitlist" },

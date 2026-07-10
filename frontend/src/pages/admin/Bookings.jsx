@@ -10,6 +10,9 @@ export default function Bookings() {
   const [filters, setFilters] = useState({ shop_id: "", status: "" });
   const [active, setActive] = useState(null);
   const [resched, setResched] = useState({ date: "", start_time: "", admin_notes: "" });
+  const [series, setSeries] = useState([]);
+  const [types, setTypes] = useState([]);
+  const [fu, setFu] = useState(null); // follow-up form: {date, start_time, appointment_type_id, label}
 
   const load = useCallback(async () => {
     const params = {};
@@ -22,11 +25,33 @@ export default function Bookings() {
   useEffect(() => { load(); }, [load]);
 
   const setStatus = async (b, status) => {
-    try { await api.patch(`/bookings/${b.id}`, { status }); toast.success(`Marked ${status}`); load(); if (active?.id === b.id) setActive({ ...active, status }); }
+    try { await api.patch(`/bookings/${b.id}`, { status }); toast.success(`Marked ${status.replace("_", "-")}`); load(); if (active?.id === b.id) setActive({ ...active, status }); }
     catch (e) { toast.error(apiErr(e)); }
   };
 
-  const openDetail = (b) => { setActive(b); setResched({ date: b.date, start_time: b.start_time, admin_notes: b.admin_notes || "" }); };
+  const openDetail = async (b) => {
+    setActive(b); setFu(null);
+    setResched({ date: b.date, start_time: b.start_time, admin_notes: b.admin_notes || "" });
+    try {
+      const [{ data: s }, { data: t }] = await Promise.all([
+        api.get(`/bookings/${b.id}/series`),
+        api.get(`/shops/${b.shop_id}/appointment-types`),
+      ]);
+      setSeries(s); setTypes(t);
+    } catch { setSeries([]); setTypes([]); }
+  };
+
+  const startFollowUp = () => setFu({ date: "", start_time: "", appointment_type_id: active.appointment_type_id, label: "" });
+
+  const saveFollowUp = async () => {
+    if (!fu.date || !fu.start_time) { toast.error("Please choose a date and time"); return; }
+    try {
+      await api.post(`/bookings/${active.id}/follow-up`, fu);
+      toast.success("Follow-up appointment created");
+      setFu(null); load();
+      const { data: s } = await api.get(`/bookings/${active.id}/series`); setSeries(s);
+    } catch (e) { toast.error(apiErr(e)); }
+  };
 
   const exportCsv = async () => {
     try {
@@ -66,7 +91,7 @@ export default function Bookings() {
             <select className="input-wtb" value={filters.status} data-testid="filter-status"
               onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
               <option value="">All statuses</option>
-              {["pending", "confirmed", "completed", "cancelled"].map((s) => <option key={s} value={s}>{s}</option>)}
+              {["pending", "confirmed", "completed", "cancelled", "no_show"].map((s) => <option key={s} value={s}>{s === "no_show" ? "no-show" : s}</option>)}
             </select>
           </Field>
         </div>
@@ -121,6 +146,18 @@ export default function Bookings() {
               </div>
             )}
 
+            {series.length > 1 && (
+              <div data-testid="booking-series" style={{ background: "var(--ivory-2)", padding: "12px 14px" }}>
+                <span className="field-label block mb-2">Appointment Series ({series.length})</span>
+                <div className="space-y-1">{series.map((s) => (
+                  <div key={s.id} className="font-sans-j text-sm flex justify-between">
+                    <span>{format(new Date(s.date), "EEE d MMM")} · {s.start_time} — {s.appointment_type_name}</span>
+                    <StatusBadge status={s.status} />
+                  </div>
+                ))}</div>
+              </div>
+            )}
+
             <div className="border-t pt-5" style={{ borderColor: "var(--line)" }}>
               <p className="field-label mb-3">Reschedule / Edit</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -134,9 +171,39 @@ export default function Bookings() {
               <button className="btn-wtb btn-ghost-wtb mt-4 w-full" onClick={saveResched} data-testid="save-resched">Save Changes</button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t pt-5" style={{ borderColor: "var(--line)" }}>
+            <div className="border-t pt-5" style={{ borderColor: "var(--line)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <p className="field-label">Follow-up Appointment</p>
+                {!fu && <button className="btn-wtb btn-ghost-wtb" onClick={startFollowUp} data-testid="add-follow-up">+ Add follow-up</button>}
+              </div>
+              {fu && (
+                <div className="space-y-4" data-testid="follow-up-form">
+                  <Field label="Label (e.g. 2nd fitting)"><input className="input-wtb" value={fu.label} data-testid="fu-label"
+                    onChange={(e) => setFu({ ...fu, label: e.target.value })} placeholder="2nd fitting" /></Field>
+                  <Field label="Appointment Type">
+                    <select className="input-wtb" value={fu.appointment_type_id} data-testid="fu-type"
+                      onChange={(e) => setFu({ ...fu, appointment_type_id: e.target.value })}>
+                      {types.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.duration} min)</option>)}
+                    </select>
+                  </Field>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Date"><input type="date" className="input-wtb" value={fu.date} data-testid="fu-date"
+                      onChange={(e) => setFu({ ...fu, date: e.target.value })} /></Field>
+                    <Field label="Time"><input type="time" className="input-wtb" value={fu.start_time} data-testid="fu-time"
+                      onChange={(e) => setFu({ ...fu, start_time: e.target.value })} /></Field>
+                  </div>
+                  <div className="flex gap-3">
+                    <button className="btn-wtb btn-gold flex-1" onClick={saveFollowUp} data-testid="save-follow-up">Create</button>
+                    <button className="btn-wtb btn-ghost-wtb" onClick={() => setFu(null)} data-testid="cancel-follow-up">Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border-t pt-5" style={{ borderColor: "var(--line)" }}>
               <button className="btn-wtb btn-gold" onClick={() => setStatus(active, "confirmed")} data-testid="confirm-booking">Confirm</button>
               <button className="btn-wtb btn-ghost-wtb" onClick={() => setStatus(active, "completed")} data-testid="complete-booking">Complete</button>
+              <button className="btn-wtb" style={{ borderColor: "#6b3f8a", color: "#6b3f8a" }} onClick={() => setStatus(active, "no_show")} data-testid="noshow-booking">No-show</button>
               <button className="btn-wtb" style={{ borderColor: "#9a4a3f", color: "#9a4a3f" }} onClick={() => setStatus(active, "cancelled")} data-testid="cancel-booking">Cancel</button>
             </div>
             <button className="btn-wtb btn-ghost-wtb w-full" onClick={() => setActive(null)} data-testid="close-booking-modal">Close</button>
