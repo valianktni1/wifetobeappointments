@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Check, CalendarClock, XCircle } from "lucide-react";
 import api, { apiErr } from "@/lib/api";
 import { Wordmark, Eyebrow, GoldRule, DesignerCredit } from "@/components/Brand";
+import PaymentPanel from "@/components/PaymentPanel";
 
 function Header() {
   return (
@@ -35,9 +36,10 @@ export default function ManageBooking() {
   const [date, setDate] = useState("");
   const [slots, setSlots] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [payConfig, setPayConfig] = useState(null);
 
   const load = () => api.get(`/public/bookings/${reference}`).then((r) => setB(r.data)).catch(() => setNotFound(true));
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [reference]);
+  useEffect(() => { load(); api.get("/payments/config").then((r) => setPayConfig(r.data)).catch(() => {}); /* eslint-disable-next-line */ }, [reference]);
 
   const findSlots = async (d) => {
     setDate(d); setSlots(null);
@@ -91,6 +93,8 @@ export default function ManageBooking() {
                 <Row k="Time" v={b.start_time} />
                 <Row k="Name" v={b.customer_name} />
               </div>
+
+              <PaymentPanel booking={b} config={payConfig} onUpdate={setB} />
 
               {b.status === "cancelled" && <p className="text-center font-sans-j" style={{ color: "#9a4a3f" }}>This appointment has been cancelled.</p>}
               {b.status === "completed" && <p className="text-center font-sans-j" style={{ color: "var(--taupe)" }}>This appointment is complete.</p>}

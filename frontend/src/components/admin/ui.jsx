@@ -78,11 +78,14 @@ export function StatusBadge({ status }) {
     cancelled: { bg: "#F0DAD6", c: "#9a4a3f" },
     completed: { bg: "var(--ivory-2)", c: "var(--taupe)" },
     no_show: { bg: "#EADFF0", c: "#6b3f8a" },
+    paid: { bg: "#DCEAD9", c: "#3f6b39" },
+    pay_in_person: { bg: "var(--champagne)", c: "var(--gold-deep)" },
   };
   const s = map[status] || map.pending;
+  const labels = { no_show: "no-show", pay_in_person: "pay in person" };
   return (
     <span className="eyebrow px-3 py-1 inline-block" style={{ background: s.bg, color: s.c, fontSize: "0.55rem" }} data-testid={`status-${status}`}>
-      {status === "no_show" ? "no-show" : status}
+      {labels[status] || status}
     </span>
   );
 }

@@ -14,7 +14,7 @@ const Q_TYPES = [
 export default function Customise() {
   const [shops, setShops] = useState([]);
   const [shopId, setShopId] = useState("");
-  const [info, setInfo] = useState({ blurb: "", photo_url: "", hours_text: "", what_to_expect: "" });
+  const [info, setInfo] = useState({ blurb: "", photo_url: "", hours_text: "", what_to_expect: "", deposit_amount: 0, deposit_required: false });
   const [questions, setQuestions] = useState([]);
 
   useEffect(() => { api.get("/shops").then((r) => { setShops(r.data); if (r.data[0]) setShopId(r.data[0].id); }); }, []);
@@ -22,7 +22,7 @@ export default function Customise() {
   const load = useCallback(async () => {
     if (!shopId) return;
     const { data } = await api.get(`/shops/${shopId}`);
-    setInfo({ blurb: data.blurb || "", photo_url: data.photo_url || "", hours_text: data.hours_text || "", what_to_expect: data.what_to_expect || "" });
+    setInfo({ blurb: data.blurb || "", photo_url: data.photo_url || "", hours_text: data.hours_text || "", what_to_expect: data.what_to_expect || "", deposit_amount: data.deposit_amount || 0, deposit_required: !!data.deposit_required });
     setQuestions(data.questions || []);
   }, [shopId]);
   useEffect(() => { load(); }, [load]);
@@ -65,6 +65,21 @@ export default function Customise() {
               onChange={(e) => setInfo({ ...info, photo_url: e.target.value })} placeholder="https://…/boutique.jpg" /></Field>
             <Field label="What To Expect"><textarea className="input-wtb" rows={3} value={info.what_to_expect} data-testid="cust-expect"
               onChange={(e) => setInfo({ ...info, what_to_expect: e.target.value })} placeholder="Bring up to 3 guests, allow 90 minutes…" /></Field>
+            <div className="border-t pt-5" style={{ borderColor: "var(--line)" }}>
+              <p className="field-label mb-3">Deposit</p>
+              <div className="flex flex-wrap items-center gap-4">
+                <Field label="Deposit amount (£)">
+                  <input type="number" min={0} step="0.01" className="input-wtb max-w-[140px]" value={info.deposit_amount}
+                    data-testid="cust-deposit-amount"
+                    onChange={(e) => setInfo({ ...info, deposit_amount: parseFloat(e.target.value || "0") })} />
+                </Field>
+                <label className="flex items-center gap-2 font-sans-j text-sm mt-6">
+                  <Toggle checked={info.deposit_required} onChange={(v) => setInfo({ ...info, deposit_required: v })} testid="cust-deposit-required" />
+                  Deposit required to confirm
+                </label>
+              </div>
+              <p className="font-sans-j text-xs mt-2" style={{ color: "var(--taupe)" }}>Set to £0 for no deposit. Payment method is chosen in Settings.</p>
+            </div>
             <button className="btn-wtb btn-gold" onClick={saveInfo} data-testid="save-info">Save Details</button>
           </div>
         </Panel>

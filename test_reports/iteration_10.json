@@ -1,0 +1,34 @@
+{
+  "summary": "Comprehensive testing of the new PAYMENTS framework (Settings method switch, per-shop deposit, booking payment computation, PaymentPanel UI, admin mark paid/unpaid, CSV export, and PayPal card graceful failure). 14/14 backend pytest tests pass. Full end-to-end UI flow verified via Playwright: settings save, deposit save, booking creation, public PaymentPanel (paypalme-link + pay-in-person-btn), admin modal mark-paid/mark-unpaid toggle. State restored to defaults at end (method=off, all shop deposits=0).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_payments.py",
+    "/app/test_reports/pytest/payments_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Settings.jsx: two 'Save' buttons (save-settings and save-payment-settings) both invoke the same save() with the whole state — behaviour is correct but potentially confusing; consider labelling clearly (works today).",
+    "PaymentPanel 'Pay with PayPal' link uses target=_blank; there's no client-side callback so payment_status stays 'pending' until admin marks paid — expected for paypal_me flow, but a small helper on the confirmation page (e.g. 'I've paid — notify boutique') could be useful. Not a bug.",
+    "Customise page: after PATCH via API, navigating client-side to /admin/customise initially shows 0 in the deposit input due to initial useState default (0) rendering before load() completes; harmless flicker, but could be masked with a loading state."
+  ],
+  "updated_files": ["/app/backend/tests/test_payments.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (all critical flows)"},
+  "test_credentials": "Superadmin superadmin@wifetobe.co.uk / WifeToBe2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Several TEST_ prefixed bookings were created during testing on the first available public slots (not cleaned to preserve booking IDs; low volume, safe).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend payment_method is left as 'off' and all shop deposit_amount=0 (live-default state). paypal_me_url may still be 'https://paypal.me/testshop' (harmless while method=off). PayPal card checkout endpoint (/paypal/create-order) correctly returns 400 'PayPal is not configured' — EXPECTED, not a bug. Reusable pytest file: /app/backend/tests/test_payments.py (14 tests, all passing).",
+  "verified_behaviours": {
+    "GET /api/payments/config": "Returns method, paypal_me_url, currency, paypal_client_id, paypal_configured. Verified.",
+    "Settings method switch": "off / in_person / paypal_me / paypal all persist via PUT /api/settings; paypalme-url field appears conditionally.",
+    "Per-shop deposit": "PATCH /api/shops/{id} with deposit_amount + deposit_required persists and returns in GET /api/shops.",
+    "Booking payment computation": "method=off OR deposit<=0 -> not_required; in_person + deposit>0 -> pay_in_person; paypal_me + deposit>0 -> pending. All three verified with real bookings.",
+    "PaymentPanel UI": "payment-amount shows £20.00, paypalme-link href = https://paypal.me/testshop/20.00GBP, pay-in-person-btn shown when deposit not required.",
+    "POST /public/bookings/{ref}/pay-in-person": "Sets payment_status=pay_in_person. Verified.",
+    "POST /paypal/create-order (unconfigured)": "Returns 400 'PayPal is not configured' as expected.",
+    "Admin mark paid/unpaid": "PATCH /api/bookings/{id} with payment_status=paid sets paid_at; mark-paid button hidden and mark-unpaid appears; toggling back to pending works.",
+    "PATCH invalid payment_status": "Returns 400 as expected.",
+    "CSV export": "Header contains Deposit and Payment columns."
+  }
+}

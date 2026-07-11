@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, MapPin, Phone, Clock, Check } from "lucide-r
 import { toast } from "sonner";
 import api, { apiErr } from "@/lib/api";
 import { Wordmark, Eyebrow, GoldRule, DesignerCredit } from "@/components/Brand";
+import PaymentPanel from "@/components/PaymentPanel";
 
 const HERO = "https://images.unsplash.com/photo-1585241920473-b472eb9ffbae?q=75&w=1600&auto=format&fit=crop";
 
@@ -118,8 +119,10 @@ export default function Booking() {
   const [confirmed, setConfirmed] = useState(null);
   const [waitOpen, setWaitOpen] = useState(false);
   const [waitDone, setWaitDone] = useState(false);
+  const [payConfig, setPayConfig] = useState(null);
 
   useEffect(() => { api.get("/shops").then((r) => setShops(r.data)).catch(() => {}); }, []);
+  useEffect(() => { api.get("/payments/config").then((r) => setPayConfig(r.data)).catch(() => {}); }, []);
 
   const pickShop = async (s) => {
     setShop(s); setType(null); setDate(null); setSlot(null); setAnswers({});
@@ -199,6 +202,7 @@ export default function Booking() {
               <Row k="Time" v={confirmed.start_time} />
               <Row k="Status" v="Pending confirmation" />
             </div>
+            <PaymentPanel booking={confirmed} config={payConfig} onUpdate={setConfirmed} />
             <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6" data-testid="add-to-calendar">
               <a className="btn-wtb btn-ghost-wtb" data-testid="gcal-link" target="_blank" rel="noreferrer"
                 href={gcalUrl(confirmed)}>Add to Google Calendar</a>

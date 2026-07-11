@@ -77,6 +77,38 @@ export default function Settings() {
       </div>
 
       <button className="btn-wtb btn-gold mt-8" onClick={save} data-testid="save-settings">Save Settings</button>
+
+      <div className="mt-8">
+        <Panel>
+          <h3 className="text-2xl mb-1">Payments</h3>
+          <p className="font-sans-j text-sm mb-6" style={{ color: "var(--taupe)" }}>
+            Choose how customers pay a deposit. Set the deposit amount per boutique on the Customise page.
+          </p>
+          <div className="space-y-4">
+            <Field label="Payment Method">
+              <select className="input-wtb max-w-sm" value={s.payment_method || "off"} data-testid="set-payment-method"
+                onChange={(e) => set({ payment_method: e.target.value })}>
+                <option value="off">Off — no online payments</option>
+                <option value="in_person">Pay in person / on the day</option>
+                <option value="paypal_me">PayPal.me link (no setup needed)</option>
+                <option value="paypal">PayPal card checkout (needs API keys)</option>
+              </select>
+            </Field>
+            {s.payment_method === "paypal_me" && (
+              <Field label="Your PayPal.me link">
+                <input className="input-wtb max-w-sm" value={s.paypal_me_url || ""} data-testid="set-paypalme-url"
+                  onChange={(e) => set({ paypal_me_url: e.target.value })} placeholder="https://paypal.me/yourbusiness" />
+              </Field>
+            )}
+            {s.payment_method === "paypal" && (
+              <p className="font-sans-j text-xs" style={{ color: "var(--taupe)" }}>
+                Add PAYPAL_CLIENT_ID and PAYPAL_SECRET to the backend .env to enable card checkout.
+              </p>
+            )}
+          </div>
+          <button className="btn-wtb btn-gold mt-6" onClick={save} data-testid="save-payment-settings">Save Payment Settings</button>
+        </Panel>
+      </div>
     </div>
   );
 }

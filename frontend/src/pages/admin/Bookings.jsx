@@ -29,6 +29,14 @@ export default function Bookings() {
     catch (e) { toast.error(apiErr(e)); }
   };
 
+  const setPayment = async (b, payment_status) => {
+    try {
+      const { data } = await api.patch(`/bookings/${b.id}`, { payment_status });
+      toast.success("Payment updated"); load();
+      if (active?.id === b.id) setActive(data);
+    } catch (e) { toast.error(apiErr(e)); }
+  };
+
   const openDetail = async (b) => {
     setActive(b); setFu(null);
     setResched({ date: b.date, start_time: b.start_time, admin_notes: b.admin_notes || "" });
@@ -143,6 +151,22 @@ export default function Bookings() {
                 <div className="space-y-1">{active.answers.map((a, i) => (
                   <div key={i} className="font-sans-j text-sm"><b>{a.label}:</b> {a.value}</div>
                 ))}</div>
+              </div>
+            )}
+
+            {active.payment_status && active.payment_status !== "not_required" && (
+              <div data-testid="booking-payment" style={{ background: "var(--ivory-2)", padding: "12px 14px" }}>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="field-label">Deposit £{Number(active.deposit_amount || 0).toFixed(2)}</span>
+                  <StatusBadge status={active.payment_status} />
+                </div>
+                <div className="flex gap-2">
+                  {active.payment_status !== "paid" ? (
+                    <button className="btn-wtb btn-gold flex-1" onClick={() => setPayment(active, "paid")} data-testid="mark-paid">Mark deposit paid</button>
+                  ) : (
+                    <button className="btn-wtb btn-ghost-wtb flex-1" onClick={() => setPayment(active, "pending")} data-testid="mark-unpaid">Mark unpaid</button>
+                  )}
+                </div>
               </div>
             )}
 

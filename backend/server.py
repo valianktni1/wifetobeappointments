@@ -21,6 +21,7 @@ import pyotp
 import qrcode
 import io
 import base64
+import httpx
 from bson import ObjectId
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from fastapi.responses import Response, FileResponse
@@ -149,6 +150,9 @@ SETTINGS_DEFAULTS = {
     "notify_shop_on_booking": False,
     "notify_on_confirm": False,
     "notify_reminder": False,
+    "payment_method": "off",       # off | in_person | paypal_me | paypal
+    "paypal_me_url": "",           # e.g. https://paypal.me/yourbusiness
+    "payment_currency": "GBP",
 }
 
 
@@ -389,6 +393,7 @@ class BookingUpdateIn(BaseModel):
     date: Optional[str] = None
     start_time: Optional[str] = None
     admin_notes: Optional[str] = None
+    payment_status: Optional[str] = None
 
 
 class ShopUpdateIn(BaseModel):
@@ -396,6 +401,8 @@ class ShopUpdateIn(BaseModel):
     photo_url: Optional[str] = None
     what_to_expect: Optional[str] = None
     hours_text: Optional[str] = None
+    deposit_amount: Optional[float] = None
+    deposit_required: Optional[bool] = None
 
 
 class QuestionsIn(BaseModel):
@@ -428,6 +435,9 @@ class SettingsIn(BaseModel):
     notify_shop_on_booking: Optional[bool] = None
     notify_on_confirm: Optional[bool] = None
     notify_reminder: Optional[bool] = None
+    payment_method: Optional[str] = None
+    paypal_me_url: Optional[str] = None
+    payment_currency: Optional[str] = None
 
 
 # ------------------------------------------------------------------ auth routes
@@ -828,6 +838,15 @@ async def create_booking(body: BookingIn):
     if body.start_time not in avail.get("slots", []):
         raise HTTPException(status_code=409, detail="That time slot is no longer available")
     ref = "WTB-" + base64.b32encode(os.urandom(5)).decode().rstrip("=")[:8]
+    settings = await get_settings()
+    method = settings.get("payment_method", "off")
+    deposit = float(shop.get("deposit_amount") or 0)
+    if method == "off" or deposit <= 0:
+        pay_status = "not_required"
+    elif method == "in_person":
+        pay_status = "pay_in_person"
+    else:  # paypal_me / paypal -> awaiting payment
+        pay_status = "pending"
     doc = {
         "reference": ref,
         "shop_id": body.shop_id,
@@ -846,11 +865,15 @@ async def create_booking(body: BookingIn):
         "admin_notes": "",
         "status": "pending",
         "reminder_sent": False,
+        "deposit_amount": deposit if pay_status != "not_required" else 0,
+        "deposit_required": bool(shop.get("deposit_required")),
+        "payment_status": pay_status,
+        "payment_method_used": "" if pay_status == "not_required" else method,
+        "payment_ref": "",
         "created_at": now_utc().isoformat(),
     }
     res = await db.bookings.insert_one(doc)
     doc["_id"] = res.inserted_id
-    settings = await get_settings()
     cfg = await resolve_cfg()
     when = f"{body.date} at {body.start_time}"
     murl = manage_url(settings, ref)
@@ -925,6 +948,108 @@ async def get_booking_by_ref(reference: str):
     return clean(doc)
 
 
+# ------------------------------------------------------------------ payments
+def _paypal_env():
+    return {
+        "client_id": os.environ.get("PAYPAL_CLIENT_ID", ""),
+        "secret": os.environ.get("PAYPAL_SECRET", ""),
+        "mode": os.environ.get("PAYPAL_MODE", "sandbox"),
+    }
+
+
+def _paypal_base(mode: str) -> str:
+    return "https://api-m.paypal.com" if mode == "live" else "https://api-m.sandbox.paypal.com"
+
+
+@api.get("/payments/config")
+async def payments_config():
+    s = await get_settings()
+    env = _paypal_env()
+    return {
+        "method": s.get("payment_method", "off"),
+        "paypal_me_url": (s.get("paypal_me_url") or "").rstrip("/"),
+        "currency": s.get("payment_currency", "GBP"),
+        "paypal_client_id": env["client_id"],
+        "paypal_configured": bool(env["client_id"] and env["secret"]),
+    }
+
+
+@api.post("/public/bookings/{reference}/pay-in-person")
+async def mark_pay_in_person(reference: str):
+    b = await db.bookings.find_one({"reference": reference})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    await db.bookings.update_one({"_id": b["_id"]},
+                                 {"$set": {"payment_status": "pay_in_person", "payment_method_used": "in_person"}})
+    doc = await db.bookings.find_one({"_id": b["_id"]})
+    return clean(doc)
+
+
+async def _paypal_token(env: dict) -> str:
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(f"{_paypal_base(env['mode'])}/v1/oauth2/token",
+                         auth=(env["client_id"], env["secret"]),
+                         data={"grant_type": "client_credentials"})
+        r.raise_for_status()
+        return r.json()["access_token"]
+
+
+@api.post("/public/bookings/{reference}/paypal/create-order")
+async def paypal_create_order(reference: str):
+    env = _paypal_env()
+    if not (env["client_id"] and env["secret"]):
+        raise HTTPException(status_code=400, detail="PayPal is not configured")
+    b = await db.bookings.find_one({"reference": reference})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    amount = float(b.get("deposit_amount") or 0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="No deposit is due for this booking")
+    s = await get_settings()
+    currency = s.get("payment_currency", "GBP")
+    try:
+        token = await _paypal_token(env)
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{_paypal_base(env['mode'])}/v2/checkout/orders",
+                             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                             json={"intent": "CAPTURE", "purchase_units": [{
+                                 "reference_id": b["reference"],
+                                 "description": f"Deposit — {b['appointment_type_name']} at {b['shop_name']}",
+                                 "amount": {"currency_code": currency, "value": f"{amount:.2f}"}}]})
+            r.raise_for_status()
+            return {"id": r.json()["id"]}
+    except httpx.HTTPError as e:
+        logger.error("PayPal create-order failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not start PayPal payment")
+
+
+@api.post("/public/bookings/{reference}/paypal/capture-order")
+async def paypal_capture_order(reference: str, order_id: str):
+    env = _paypal_env()
+    if not (env["client_id"] and env["secret"]):
+        raise HTTPException(status_code=400, detail="PayPal is not configured")
+    b = await db.bookings.find_one({"reference": reference})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    try:
+        token = await _paypal_token(env)
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(f"{_paypal_base(env['mode'])}/v2/checkout/orders/{order_id}/capture",
+                             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as e:
+        logger.error("PayPal capture failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not confirm PayPal payment")
+    if data.get("status") == "COMPLETED":
+        await db.bookings.update_one({"_id": b["_id"]}, {"$set": {
+            "payment_status": "paid", "payment_method_used": "paypal",
+            "payment_ref": order_id, "paid_at": now_utc().isoformat()}})
+    doc = await db.bookings.find_one({"_id": b["_id"]})
+    return clean(doc)
+
+
+
 def _booking_query(shop_id, status, date_from, date_to):
     query: dict = {}
     if shop_id:
@@ -955,11 +1080,12 @@ async def export_bookings_csv(user: dict = Depends(get_current_user), shop_id: O
     docs = await db.bookings.find(query).sort([("date", 1), ("start_time", 1)]).to_list(5000)
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["Reference", "Date", "Time", "Duration (min)", "Status", "Boutique", "Appointment", "Customer", "Email", "Phone", "Notes", "Created"])
+    w.writerow(["Reference", "Date", "Time", "Duration (min)", "Status", "Boutique", "Appointment", "Customer", "Email", "Phone", "Deposit", "Payment", "Notes", "Created"])
     for b in docs:
         w.writerow([b.get("reference", ""), b.get("date", ""), b.get("start_time", ""), b.get("duration", ""),
                     b.get("status", ""), b.get("shop_name", ""), b.get("appointment_type_name", ""),
                     b.get("customer_name", ""), b.get("customer_email", ""), b.get("customer_phone", ""),
+                    b.get("deposit_amount", 0), b.get("payment_status", ""),
                     (b.get("notes") or "").replace("\n", " "), b.get("created_at", "")])
     return Response(content=out.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": 'attachment; filename="wifetobe-bookings.csv"'})
@@ -994,6 +1120,14 @@ async def update_booking(booking_id: str, body: BookingUpdateIn, user: dict = De
         update["start_time"] = body.start_time
     if body.admin_notes is not None:
         update["admin_notes"] = body.admin_notes
+    if body.payment_status is not None:
+        if body.payment_status not in ("not_required", "pending", "paid", "pay_in_person"):
+            raise HTTPException(status_code=400, detail="Invalid payment status")
+        update["payment_status"] = body.payment_status
+        if body.payment_status == "paid":
+            update["paid_at"] = now_utc().isoformat()
+            if not booking.get("payment_method_used"):
+                update["payment_method_used"] = "manual"
     if update:
         await db.bookings.update_one({"_id": booking["_id"]}, {"$set": update})
     doc = await db.bookings.find_one({"_id": booking["_id"]})
@@ -1278,6 +1412,9 @@ async def seed():
     await db.shops.update_many({"what_to_expect": {"$exists": False}}, {"$set": {"what_to_expect": ""}})
     await db.availability.update_many({"capacity": {"$exists": False}}, {"$set": {"capacity": 1}})
     await db.availability.update_many({"buffer": {"$exists": False}}, {"$set": {"buffer": 0}})
+    await db.shops.update_many({"deposit_amount": {"$exists": False}}, {"$set": {"deposit_amount": 0}})
+    await db.shops.update_many({"deposit_required": {"$exists": False}}, {"$set": {"deposit_required": False}})
+    await db.bookings.update_many({"payment_status": {"$exists": False}}, {"$set": {"payment_status": "not_required", "deposit_amount": 0, "payment_method_used": "", "payment_ref": ""}})
 
     # add "How did you hear about us?" question to shops that don't have it yet (additive)
     SOURCE_Q = {
