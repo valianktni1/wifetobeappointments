@@ -985,6 +985,31 @@ async def mark_pay_in_person(reference: str):
     return clean(doc)
 
 
+@api.post("/public/bookings/{reference}/notify-paid")
+async def notify_deposit_paid(reference: str):
+    b = await db.bookings.find_one({"reference": reference})
+    if not b:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    await db.bookings.update_one({"_id": b["_id"]},
+                                 {"$set": {"deposit_claimed": True, "deposit_claimed_at": now_utc().isoformat()}})
+    settings = await get_settings()
+    cfg = await resolve_cfg()
+    shop_to = settings.get("business_email") or (cfg or {}).get("from_addr")
+    amount = float(b.get("deposit_amount") or 0)
+    cur = settings.get("payment_currency", "GBP")
+    sym = {"GBP": "£", "USD": "$", "EUR": "€"}.get(cur, "")
+    if shop_to:
+        _smtp_send(cfg, shop_to, f"Deposit reported paid — {b['reference']}",
+                   f"{b['customer_name']} has reported paying their {sym}{amount:.2f} deposit for {b['appointment_type_name']} at {b['shop_name']} on {b['date']} at {b['start_time']}. Reference {b['reference']}. Please verify and mark it paid in the admin panel.",
+                   html=render_email(
+                       "Deposit Reported Paid",
+                       [f"<strong>{b['customer_name']}</strong> has reported paying their <strong>{sym}{amount:.2f}</strong> deposit.",
+                        f"{b['appointment_type_name']} at {b['shop_name']} on {b['date']} at {b['start_time']}.<br>Reference: <strong>{b['reference']}</strong>",
+                        "Please verify the payment and mark it paid in the admin panel."]))
+    doc = await db.bookings.find_one({"_id": b["_id"]})
+    return clean(doc)
+
+
 async def _paypal_token(env: dict) -> str:
     async with httpx.AsyncClient(timeout=20) as c:
         r = await c.post(f"{_paypal_base(env['mode'])}/v1/oauth2/token",

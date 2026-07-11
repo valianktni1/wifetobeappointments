@@ -12,6 +12,7 @@ function money(amount, currency) {
 
 export default function PaymentPanel({ booking, config, onUpdate }) {
   const [busy, setBusy] = useState(false);
+  const [claimed, setClaimed] = useState(false);
   if (!booking || !config) return null;
 
   const amount = Number(booking.deposit_amount || 0);
@@ -54,6 +55,19 @@ export default function PaymentPanel({ booking, config, onUpdate }) {
     finally { setBusy(false); }
   };
 
+  const notifyPaid = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post(`/public/bookings/${booking.reference}/notify-paid`);
+      onUpdate?.(data);
+      setClaimed(true);
+      toast.success("Thank you — we'll confirm your deposit shortly.");
+    } catch (e) { toast.error(apiErr(e)); }
+    finally { setBusy(false); }
+  };
+
+  const hasClaimed = claimed || booking.deposit_claimed;
+
   return (
     <div className="border-t border-b py-6 my-6 text-center" style={{ borderColor: "var(--line)" }} data-testid="payment-panel">
       <p className="field-label mb-1">Deposit Due</p>
@@ -70,6 +84,15 @@ export default function PaymentPanel({ booking, config, onUpdate }) {
           <p className="font-sans-j text-xs" style={{ color: "var(--taupe)" }}>
             Please use your reference <b>{booking.reference}</b> as the payment note.
           </p>
+          {hasClaimed ? (
+            <p className="font-sans-j text-sm" data-testid="deposit-claimed" style={{ color: "#3f6b39" }}>
+              Thank you — we'll confirm your deposit shortly.
+            </p>
+          ) : (
+            <button className="btn-wtb btn-ghost-wtb" onClick={notifyPaid} disabled={busy} data-testid="notify-paid-btn">
+              I've paid — notify the boutique
+            </button>
+          )}
         </div>
       )}
 

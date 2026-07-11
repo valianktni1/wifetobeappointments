@@ -160,6 +160,11 @@ export default function Bookings() {
                   <span className="field-label">Deposit £{Number(active.deposit_amount || 0).toFixed(2)}</span>
                   <StatusBadge status={active.payment_status} />
                 </div>
+                {active.deposit_claimed && active.payment_status !== "paid" && (
+                  <p className="font-sans-j text-xs mb-3" data-testid="deposit-claimed-note" style={{ color: "var(--gold-deep)" }}>
+                    ⚑ Customer reported paying — please verify and confirm.
+                  </p>
+                )}
                 <div className="flex gap-2">
                   {active.payment_status !== "paid" ? (
                     <button className="btn-wtb btn-gold flex-1" onClick={() => setPayment(active, "paid")} data-testid="mark-paid">Mark deposit paid</button>
