@@ -52,10 +52,9 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - >
+      - |
         while true; do
-          mongodump --uri="mongodb://mongo:27017" --db=wifetobe --gzip
-          --archive=/backup/wifetobe-$(date +%Y%m%d-%H%M%S).gz;
+          mongodump --uri="mongodb://mongo:27017" --db=wifetobe --gzip --archive=/backup/wifetobe-$$(date +%Y%m%d-%H%M%S).gz;
           find /backup -name 'wifetobe-*.gz' -mtime +30 -delete;
           sleep 86400;
         done
