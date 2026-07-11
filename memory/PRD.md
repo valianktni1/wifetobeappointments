@@ -40,6 +40,17 @@ Bridal boutique group (wifetobe.co.uk, hosted on Hostinger) wants a self-hosted 
 - Per-admin SMTP settings + self-service profile/email; fully mobile-responsive; portalled, floating, easily-closable modals.
 - Verified: iteration_8 (7 features), frontend 100%.
 
+## Enhancements (2026-07-11) — Payments (additive, backward-compatible)
+- Payment framework with a global method switch in Settings: **Off** (default, unchanged behaviour) / **Pay in person** / **PayPal.me link** (no keys) / **PayPal card checkout** (needs keys).
+- Per-shop deposit set on Customise page: `deposit_amount` (£) + `deposit_required` toggle.
+- Booking payment computation: off/deposit≤0 → not_required; in_person → pay_in_person; paypal_me/paypal → pending. Booking snapshots deposit_amount, deposit_required, payment_status, payment_method_used, payment_ref, paid_at.
+- Public PaymentPanel (Booking confirmation + ManageBooking): PayPal.me pay link ({url}/{amount}GBP + reference note), in-person message, PayPal card buttons (gated on configured keys), and "I'll pay in person instead" when deposit optional.
+- Endpoints: GET /api/payments/config; POST /public/bookings/{ref}/pay-in-person; POST /public/bookings/{ref}/paypal/create-order & capture-order (PayPal REST v2 via httpx, reads PAYPAL_CLIENT_ID/SECRET/MODE from backend .env — returns 400 if unconfigured).
+- Admin Bookings: payment section with deposit + status badge + Mark paid/unpaid. CSV export adds Deposit + Payment columns.
+- Frontend dep added: @paypal/react-paypal-js. Backend .env keys added (empty): PAYPAL_CLIENT_ID, PAYPAL_SECRET, PAYPAL_MODE=sandbox.
+- Custom appointment durations: any 5–600 min (not just 30/60/90/120) via a custom minutes input.
+- Verified: iteration_10 (backend 14/14, frontend 100%, zero bugs). DB reset to clean state (method=off, deposits=0, 0 bookings).
+
 ## Backlog / Remaining
 - P1: Wire/verify automatic emails once SMTP configured; add reminder emails (24h before).
 
