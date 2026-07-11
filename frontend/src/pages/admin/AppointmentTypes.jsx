@@ -29,6 +29,7 @@ export default function AppointmentTypes() {
 
   const save = async () => {
     if (!form.name) { toast.error("Name is required"); return; }
+    if (!(form.duration >= 5 && form.duration <= 600)) { toast.error("Duration must be between 5 and 600 minutes"); return; }
     try {
       if (editing) await api.patch(`/appointment-types/${editing.id}`, form);
       else await api.post(`/shops/${shopId}/appointment-types`, form);
@@ -78,11 +79,17 @@ export default function AppointmentTypes() {
           <Field label="Name"><input className="input-wtb" value={form.name} data-testid="type-name"
             onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
           <Field label="Duration">
-            <div className="flex gap-2">
+            <div className="flex gap-2 mb-3">
               {[30, 60, 90, 120].map((d) => (
                 <button key={d} type="button" onClick={() => setForm({ ...form, duration: d })} data-testid={`duration-${d}`}
                   className="btn-wtb flex-1" style={form.duration === d ? { background: "var(--gold)", borderColor: "var(--gold)", color: "#fff" } : {}}>{d}m</button>
               ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <input type="number" min={5} max={600} step={5} className="input-wtb max-w-[140px]" value={form.duration}
+                data-testid="duration-custom"
+                onChange={(e) => setForm({ ...form, duration: parseInt(e.target.value || "0", 10) })} />
+              <span className="font-sans-j text-sm" style={{ color: "var(--taupe)" }}>minutes (custom — 5 to 600)</span>
             </div>
           </Field>
           <Field label="Description"><textarea className="input-wtb" rows={3} value={form.description} data-testid="type-desc"

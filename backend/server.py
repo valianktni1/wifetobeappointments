@@ -696,8 +696,8 @@ async def list_types(shop_id: str, all: bool = False):
 
 @api.post("/shops/{shop_id}/appointment-types")
 async def create_type(shop_id: str, body: AppointmentTypeIn, user: dict = Depends(get_current_user)):
-    if body.duration not in (30, 60, 90, 120):
-        raise HTTPException(status_code=400, detail="Duration must be 30, 60, 90 or 120 minutes")
+    if not (5 <= body.duration <= 600):
+        raise HTTPException(status_code=400, detail="Duration must be between 5 and 600 minutes")
     doc = body.model_dump()
     doc["shop_id"] = shop_id
     res = await db.appointment_types.insert_one(doc)
@@ -707,8 +707,8 @@ async def create_type(shop_id: str, body: AppointmentTypeIn, user: dict = Depend
 
 @api.patch("/appointment-types/{type_id}")
 async def update_type(type_id: str, body: AppointmentTypeIn, user: dict = Depends(get_current_user)):
-    if body.duration not in (30, 60, 90, 120):
-        raise HTTPException(status_code=400, detail="Duration must be 30, 60, 90 or 120 minutes")
+    if not (5 <= body.duration <= 600):
+        raise HTTPException(status_code=400, detail="Duration must be between 5 and 600 minutes")
     await db.appointment_types.update_one({"_id": oid(type_id)}, {"$set": body.model_dump()})
     doc = await db.appointment_types.find_one({"_id": oid(type_id)})
     if not doc:
@@ -768,7 +768,7 @@ async def del_blocked(block_id: str, user: dict = Depends(get_current_user)):
 
 # ------------------------------------------------------------------ slot computation
 async def _compute_slots(shop_id: str, date: str, duration: int, exclude_ref: Optional[str] = None):
-    if duration not in (30, 60, 90, 120):
+    if not (5 <= duration <= 600):
         raise HTTPException(status_code=400, detail="Invalid duration")
     try:
         d = datetime.strptime(date, "%Y-%m-%d").date()
