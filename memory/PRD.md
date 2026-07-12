@@ -51,6 +51,15 @@ Bridal boutique group (wifetobe.co.uk, hosted on Hostinger) wants a self-hosted 
 - Custom appointment durations: any 5–600 min (not just 30/60/90/120) via a custom minutes input.
 - Verified: iteration_10 (backend 14/14, frontend 100%, zero bugs). DB reset to clean state (method=off, deposits=0, 0 bookings).
 
+## Enhancements (2026-07-12) — Multi-method payments + fixes
+- **Multi-method payment picker:** superadmin enables UP TO 3 methods (PayPal.me, Bank transfer, Pay in person, PayPal card) in Settings; each reveals its own fields. Server + client cap at 3. `payment_methods` list added; legacy `payment_method` kept & auto-migrated via `_active_methods()`.
+- Bank transfer method shows account name / sort code / account number + reference at checkout; "I've paid — notify boutique" works for it too.
+- PaymentPanel renders all enabled methods; status matrix: no methods→not_required, only in_person→pay_in_person, ≥1 online→pending. GET /api/payments/config returns {methods, bank, paypal_me_url,...}.
+- **Deploy fix:** added `httpx` to requirements-docker.txt + requirements.txt (container crash-looped on `import httpx`).
+- **Backup fix (compose):** mongodump `--archive` was split across YAML lines; consolidated to one line + escaped `$$(date)`.
+- Verified: iteration_11 (backend 12/12, frontend 100%, zero bugs). DB reset clean (methods=[], deposits=0, 0 bookings).
+
+
 ## Backlog / Remaining
 - P1: Wire/verify automatic emails once SMTP configured; add reminder emails (24h before).
 
