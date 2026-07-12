@@ -150,8 +150,12 @@ SETTINGS_DEFAULTS = {
     "notify_shop_on_booking": False,
     "notify_on_confirm": False,
     "notify_reminder": False,
-    "payment_method": "off",       # off | in_person | paypal_me | paypal
+    "payment_method": "off",       # legacy single method (kept for back-compat)
+    "payment_methods": [],         # up to 3 of: in_person | paypal_me | paypal | bank_transfer
     "paypal_me_url": "",           # e.g. https://paypal.me/yourbusiness
+    "bank_account_name": "",
+    "bank_sort_code": "",
+    "bank_account_number": "",
     "payment_currency": "GBP",
 }
 
@@ -436,7 +440,11 @@ class SettingsIn(BaseModel):
     notify_on_confirm: Optional[bool] = None
     notify_reminder: Optional[bool] = None
     payment_method: Optional[str] = None
+    payment_methods: Optional[List[str]] = None
     paypal_me_url: Optional[str] = None
+    bank_account_name: Optional[str] = None
+    bank_sort_code: Optional[str] = None
+    bank_account_number: Optional[str] = None
     payment_currency: Optional[str] = None
 
 
@@ -839,13 +847,13 @@ async def create_booking(body: BookingIn):
         raise HTTPException(status_code=409, detail="That time slot is no longer available")
     ref = "WTB-" + base64.b32encode(os.urandom(5)).decode().rstrip("=")[:8]
     settings = await get_settings()
-    method = settings.get("payment_method", "off")
+    methods = _active_methods(settings)
     deposit = float(shop.get("deposit_amount") or 0)
-    if method == "off" or deposit <= 0:
+    if not methods or deposit <= 0:
         pay_status = "not_required"
-    elif method == "in_person":
+    elif methods == ["in_person"]:
         pay_status = "pay_in_person"
-    else:  # paypal_me / paypal -> awaiting payment
+    else:
         pay_status = "pending"
     doc = {
         "reference": ref,
@@ -868,7 +876,7 @@ async def create_booking(body: BookingIn):
         "deposit_amount": deposit if pay_status != "not_required" else 0,
         "deposit_required": bool(shop.get("deposit_required")),
         "payment_status": pay_status,
-        "payment_method_used": "" if pay_status == "not_required" else method,
+        "payment_method_used": "in_person" if pay_status == "pay_in_person" else "",
         "payment_ref": "",
         "created_at": now_utc().isoformat(),
     }
@@ -949,6 +957,17 @@ async def get_booking_by_ref(reference: str):
 
 
 # ------------------------------------------------------------------ payments
+VALID_PAYMENT_METHODS = ["in_person", "paypal_me", "paypal", "bank_transfer"]
+
+
+def _active_methods(settings: dict) -> list:
+    methods = settings.get("payment_methods")
+    if methods is None:
+        legacy = settings.get("payment_method", "off")
+        methods = [] if legacy in (None, "", "off") else [legacy]
+    return [m for m in methods if m in VALID_PAYMENT_METHODS][:3]
+
+
 def _paypal_env():
     return {
         "client_id": os.environ.get("PAYPAL_CLIENT_ID", ""),
@@ -965,9 +984,16 @@ def _paypal_base(mode: str) -> str:
 async def payments_config():
     s = await get_settings()
     env = _paypal_env()
+    methods = _active_methods(s)
     return {
-        "method": s.get("payment_method", "off"),
+        "methods": methods,
+        "method": methods[0] if methods else "off",  # legacy field
         "paypal_me_url": (s.get("paypal_me_url") or "").rstrip("/"),
+        "bank": {
+            "account_name": s.get("bank_account_name", ""),
+            "sort_code": s.get("bank_sort_code", ""),
+            "account_number": s.get("bank_account_number", ""),
+        },
         "currency": s.get("payment_currency", "GBP"),
         "paypal_client_id": env["client_id"],
         "paypal_configured": bool(env["client_id"] and env["secret"]),
@@ -1400,6 +1426,8 @@ async def write_settings(body: SettingsIn, user: dict = Depends(require_superadm
     update = {k: v for k, v in body.model_dump().items() if v is not None}
     if update.get("smtp_password") == "********":
         update.pop("smtp_password")
+    if "payment_methods" in update:
+        update["payment_methods"] = [m for m in update["payment_methods"] if m in VALID_PAYMENT_METHODS][:3]
     await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
     return {"ok": True}
 

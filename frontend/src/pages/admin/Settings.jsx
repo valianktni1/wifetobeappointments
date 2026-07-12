@@ -82,33 +82,69 @@ export default function Settings() {
         <Panel>
           <h3 className="text-2xl mb-1">Payments</h3>
           <p className="font-sans-j text-sm mb-6" style={{ color: "var(--taupe)" }}>
-            Choose how customers pay a deposit. Set the deposit amount per boutique on the Customise page.
+            Enable up to 3 ways for customers to pay a deposit. Set the deposit amount per boutique on the Customise page.
           </p>
-          <div className="space-y-4">
-            <Field label="Payment Method">
-              <select className="input-wtb max-w-sm" value={s.payment_method || "off"} data-testid="set-payment-method"
-                onChange={(e) => set({ payment_method: e.target.value })}>
-                <option value="off">Off — no online payments</option>
-                <option value="in_person">Pay in person / on the day</option>
-                <option value="paypal_me">PayPal.me link (no setup needed)</option>
-                <option value="paypal">PayPal card checkout (needs API keys)</option>
-              </select>
-            </Field>
-            {s.payment_method === "paypal_me" && (
-              <Field label="Your PayPal.me link">
-                <input className="input-wtb max-w-sm" value={s.paypal_me_url || ""} data-testid="set-paypalme-url"
+          <PaymentMethods s={s} set={set} />
+          <button className="btn-wtb btn-gold mt-6" onClick={save} data-testid="save-payment-settings">Save Payment Settings</button>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+const METHOD_LIST = [
+  { key: "paypal_me", label: "PayPal.me link", hint: "Quick, no setup — customers pay via your PayPal.me link." },
+  { key: "bank_transfer", label: "Bank transfer", hint: "Customers pay by bank transfer using your details." },
+  { key: "in_person", label: "Pay in person / on the day", hint: "No online payment — recorded manually." },
+  { key: "paypal", label: "PayPal card checkout", hint: "Card payment via PayPal (needs API keys in backend .env)." },
+];
+
+function PaymentMethods({ s, set }) {
+  const methods = s.payment_methods || [];
+  const toggle = (key) => {
+    if (methods.includes(key)) set({ payment_methods: methods.filter((m) => m !== key) });
+    else if (methods.length < 3) set({ payment_methods: [...methods, key] });
+  };
+  return (
+    <div className="space-y-4">
+      <p className="eyebrow" style={{ fontSize: "0.55rem", color: methods.length >= 3 ? "#9a4a3f" : "var(--taupe)" }}>
+        {methods.length}/3 selected
+      </p>
+      {METHOD_LIST.map((m) => {
+        const on = methods.includes(m.key);
+        return (
+          <div key={m.key} className="border p-4" style={{ borderColor: on ? "var(--gold)" : "var(--line)" }} data-testid={`pm-${m.key}`}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="font-sans-j text-sm" style={{ color: "var(--charcoal)" }}>{m.label}</p>
+                <p className="font-sans-j text-xs" style={{ color: "var(--taupe)" }}>{m.hint}</p>
+              </div>
+              <Toggle checked={on} onChange={() => toggle(m.key)} testid={`pm-toggle-${m.key}`} />
+            </div>
+            {on && m.key === "paypal_me" && (
+              <div className="mt-4"><Field label="Your PayPal.me link">
+                <input className="input-wtb" value={s.paypal_me_url || ""} data-testid="set-paypalme-url"
                   onChange={(e) => set({ paypal_me_url: e.target.value })} placeholder="https://paypal.me/yourbusiness" />
-              </Field>
+              </Field></div>
             )}
-            {s.payment_method === "paypal" && (
-              <p className="font-sans-j text-xs" style={{ color: "var(--taupe)" }}>
+            {on && m.key === "bank_transfer" && (
+              <div className="mt-4 grid sm:grid-cols-3 gap-3">
+                <Field label="Account Name"><input className="input-wtb" value={s.bank_account_name || ""} data-testid="set-bank-name"
+                  onChange={(e) => set({ bank_account_name: e.target.value })} /></Field>
+                <Field label="Sort Code"><input className="input-wtb" value={s.bank_sort_code || ""} data-testid="set-bank-sort"
+                  onChange={(e) => set({ bank_sort_code: e.target.value })} placeholder="00-00-00" /></Field>
+                <Field label="Account Number"><input className="input-wtb" value={s.bank_account_number || ""} data-testid="set-bank-number"
+                  onChange={(e) => set({ bank_account_number: e.target.value })} placeholder="12345678" /></Field>
+              </div>
+            )}
+            {on && m.key === "paypal" && (
+              <p className="font-sans-j text-xs mt-3" style={{ color: "var(--taupe)" }}>
                 Add PAYPAL_CLIENT_ID and PAYPAL_SECRET to the backend .env to enable card checkout.
               </p>
             )}
           </div>
-          <button className="btn-wtb btn-gold mt-6" onClick={save} data-testid="save-payment-settings">Save Payment Settings</button>
-        </Panel>
-      </div>
+        );
+      })}
     </div>
   );
 }

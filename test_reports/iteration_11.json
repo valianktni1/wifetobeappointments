@@ -1,0 +1,35 @@
+{
+  "summary": "Comprehensive testing of the new MULTI-METHOD payments framework. Backend: 12/12 tests pass (test_payments_multi.py). Frontend: full E2E verified — Settings toggles for 4 methods, 3/3 cap enforced (4th toggle no-op), per-method fields (paypal_me URL / bank name+sort+number) persisted via PUT /settings; server-side cap to 3 confirmed; booking payment_status matrix (no-methods=not_required, only_in_person=pay_in_person, >=1 online=pending) verified; PaymentPanel renders all 3 enabled methods (paypal_me link with /{amount}GBP suffix, bank details with reference, in-person message); notify-paid button sets deposit_claimed=true while status stays pending; pay-in-person link switches to pay_in_person; PayPal-only unconfigured shows fallback message; regression with no methods produces zero payment UI. State fully restored (methods=[], deposits=0, bank/paypalme fields cleared).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_payments_multi.py",
+    "/app/test_reports/pytest/payments_multi_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Settings.jsx has two Save buttons (save-settings and save-payment-settings) — both PUT full settings; behaviour is correct but repetition is a minor UX concern.",
+    "PaymentPanel.jsx: when methods=['paypal'] and paypal is NOT configured, the fallback text is only rendered if methods.length===1. If paypal is combined with only in_person (methods.length>1) and neither can render, the UI could look sparse — currently paired with paypal_me/bank_transfer in-person so not a real issue today.",
+    "Server: PUT /settings caps payment_methods to first 3 but silently drops extras — consider returning a 400 or warning for clearer feedback (functional today)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_payments_multi.py"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (all critical flows: settings, cap, save, booking matrix, PaymentPanel rendering, notify-paid, pay-in-person, PayPal fallback, no-methods regression)"},
+  "test_credentials": "superadmin@wifetobe.co.uk / WifeToBe2026!",
+  "seed_data_creation": "Several TEST_ bookings created (TEST_MultiUI, TEST_PPOnly, TEST_NoMethods and pytest bookings). All emails contain 'example.com' for easy cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Settings restored to default state after tests: payment_methods=[], payment_method='off', paypal_me_url='', bank fields cleared, all shop deposit_amount=0 and deposit_required=false. PayPal card checkout endpoint intentionally NOT configured — 400 'not configured' is EXPECTED. Reusable pytest: /app/backend/tests/test_payments_multi.py (12 tests). Older /app/backend/tests/test_payments.py still exists but tests the legacy single-method API; may be superseded by test_payments_multi.py.",
+  "verified_behaviours": {
+    "GET /api/payments/config": "Returns {methods:[], method:'off'|first, paypal_me_url, bank:{account_name,sort_code,account_number}, currency, paypal_client_id, paypal_configured}. Verified.",
+    "PUT /api/settings caps to 3": "Sending 4 methods persists only first 3 (verified via test_server_caps_to_three).",
+    "Client-side 3 cap": "4th toggle click does nothing; counter shows 3/3 SELECTED, paypal row border remains var(--line) (not gold).",
+    "Booking status matrix": "no methods -> not_required (deposit forced to 0); only in_person -> pay_in_person; paypal_me+in_person -> pending. All verified with real bookings.",
+    "PaymentPanel multi-method render": "£25.00 amount; paypalme-link href=https://paypal.me/testshop/25.00GBP; bank block shows Name/Sort code/Account no/Reference; in_person message.",
+    "POST /public/bookings/{ref}/notify-paid": "Returns 200; deposit_claimed=true; payment_status stays 'pending'; UI shows deposit-claimed message.",
+    "POST /public/bookings/{ref}/pay-in-person": "Returns 200; payment_status becomes 'pay_in_person'.",
+    "PayPal card unconfigured fallback": "With methods=['paypal'] only, PaymentPanel shows 'Online payment is not yet available…' fallback; method-paypal component not rendered (no client keys).",
+    "Regression (no methods)": "Booking created with methods=[] has payment_status='not_required' and deposit_amount=0; PaymentPanel returns null (no payment UI); reschedule/cancel buttons still visible."
+  }
+}
