@@ -65,6 +65,14 @@ async def download_overview():
     return FileResponse(str(fp), media_type="text/plain", filename=fp.name)
 
 
+@api.get("/download/saas-brief")
+async def download_saas_brief():
+    fp = DOCS_DIR / "WifeToBe-SaaS-Build-Brief.txt"
+    if not fp.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(fp), media_type="text/plain", filename=fp.name)
+
+
 # ------------------------------------------------------------------ helpers
 PyObjectId = Annotated[str, BeforeValidator(str)]
 

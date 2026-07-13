@@ -1,0 +1,335 @@
+========================================================================
+  BUILD BRIEF — MULTI-TENANT SaaS BOOKING PLATFORM
+  (White-label version of the "Wife To Be" appointment system)
+  Hand this entire document to a NEW Emergent chat to start the build.
+========================================================================
+
+
+------------------------------------------------------------------------
+0. HOW TO USE THIS DOCUMENT
+------------------------------------------------------------------------
+- Start a NEW Emergent project/chat and connect it to a NEW GitHub repo
+  (do NOT build inside the existing Wife To Be project — keep production
+  safe and untouched).
+- Paste this whole brief as the first message.
+- REFERENCE REPO (existing single-tenant app — READ-ONLY, for feature &
+  behaviour reference only; do not deploy or modify it):
+      https://github.com/valianktni1/wifetobeappointments.git
+  Ask the agent to study this repo to replicate the exact functionality,
+  UI/UX, branding structure and API shapes, then add multi-tenancy on top.
+
+
+------------------------------------------------------------------------
+1. GOAL (ONE LINE)
+------------------------------------------------------------------------
+Turn the existing single-shop-owner booking app into a multi-tenant SaaS
+where I (the platform owner) onboard companies. Each company is an
+isolated "tenant" that gets the FULL existing feature set in their own
+admin dashboard, their own branding, their own subdomain, and a 7-day
+free trial of all features.
+
+
+------------------------------------------------------------------------
+2. ROLES
+------------------------------------------------------------------------
+A) PLATFORM SUPERADMIN (me — the SaaS owner)
+   - Sits ABOVE all tenants. Not tied to any single company.
+   - Can create / edit / suspend / delete companies (tenants).
+   - Sets each tenant's subdomain, plan/trial, status.
+   - Can see a platform overview (list of companies, trial status,
+     usage counts, expiry dates).
+   - Can log in to / impersonate a tenant for support (optional, nice
+     to have).
+
+B) TENANT (a company, e.g. "Superbrides")
+   Within their own isolated space they have EXACTLY the roles the
+   current app has:
+   - Company Superadmin (1) — full control of THEIR company only.
+   - Standard Admins (up to 4) — same granular permissions as today.
+   Tenants must NEVER see or access any other tenant's data.
+
+C) PUBLIC CUSTOMERS (brides) — book appointments on a tenant's public
+   site (served on that tenant's subdomain).
+
+
+------------------------------------------------------------------------
+3. MULTI-TENANCY ARCHITECTURE (CRITICAL)
+------------------------------------------------------------------------
+- Single MongoDB database, shared-schema multi-tenancy.
+- EVERY tenant-owned document carries a `tenant_id`.
+  (shops/locations, admins, appointment_types, availability, bookings,
+   waitlist, settings, questions, blocked_dates, logos, etc.)
+- EVERY query, read, write, aggregation and export MUST be scoped by the
+  current tenant_id. There must be NO endpoint that can leak or mutate
+  another tenant's data.
+- Platform-superadmin collections (companies/tenants, platform users) sit
+  OUTSIDE tenant scope.
+- Resolve the current tenant on EVERY request from the SUBDOMAIN of the
+  incoming Host header (see section 5). Tenant context is derived
+  server-side; never trust a tenant_id sent from the browser.
+- Add a Mongo unique index on tenant subdomain, and compound indexes on
+  (tenant_id, ...) for the hot queries.
+
+
+------------------------------------------------------------------------
+4. TRIALS & PLAN STATUS (7-DAY FREE TRIAL)
+------------------------------------------------------------------------
+- When I create a company, I assign a plan: default = "trial".
+- Trial = 7 days from creation (store trial_started_at + trial_ends_at).
+  ALL features unlocked during the trial (no crippling).
+- Tenant status values: trial | active | expired | suspended.
+- On each tenant request, compute status:
+    * trial and now < trial_ends_at  -> full access.
+    * trial and now >= trial_ends_at -> EXPIRED.
+- EXPIRED behaviour:
+    * Tenant ADMIN can still log in but sees a clear "Your trial has
+      ended — contact us to continue" screen; management actions are
+      blocked (read-only or locked).
+    * Public booking page for that subdomain shows a polite "bookings
+      temporarily unavailable" message (configurable).
+    * Platform superadmin can extend the trial, convert to "active", or
+      suspend.
+- SUSPENDED behaviour: tenant + public site fully locked with a notice.
+- Show tenants a small banner: "X days left in your trial".
+- Platform overview must show each company's status and days remaining,
+  and let me extend/convert/suspend with one click.
+- (Billing/Stripe is OUT OF SCOPE for v1 — leave a clean hook for it
+  later. Converting to "active" is a manual toggle by me for now.)
+
+
+------------------------------------------------------------------------
+5. SUBDOMAIN ROUTING (NO WILDCARD — MANUAL PER CLIENT)
+------------------------------------------------------------------------
+IMPORTANT: I am NOT using wildcard DNS. For each new client I will
+manually create a real subdomain and wire it up. The app must support
+this cleanly.
+
+Setup per client (my manual steps — the app just needs to cooperate):
+  1. In Hostinger DNS: I create an A / CNAME record for the subdomain
+     (e.g. superbrides.ivorydigital.uk) pointing to my TrueNAS/public IP.
+  2. On TrueNAS I add an Nginx Proxy (Nginx Proxy Manager or similar)
+     host for that subdomain -> the app's frontend/backend.
+  3. I assign/generate an SSL certificate for that exact subdomain
+     (Let's Encrypt per host).
+
+App requirements to make this work:
+  - The backend must identify the tenant from the request Host header
+    (the subdomain), e.g. Host: superbrides.ivorydigital.uk ->
+    tenant with subdomain "superbrides".
+  - When I create a company in the platform panel, I set its `subdomain`
+    (and optionally a full custom domain). The app maps
+    Host -> tenant via that stored value.
+  - Provide a way to test locally / without DNS: also allow selecting the
+    tenant via a query param or header in non-production (e.g.
+    ?tenant=superbrides or an X-Tenant header) so development and the
+    testing agent can work before DNS exists.
+  - Frontend must call the backend on the SAME host it is served from
+    (respect REACT_APP_BACKEND_URL) so cookies/subdomain context line up.
+  - CORS must allow the tenant subdomains.
+  - Document exactly what Nginx proxy headers are needed (must forward
+    the original Host header so the backend sees the real subdomain:
+    proxy_set_header Host $host; and X-Forwarded-* headers).
+  - The platform superadmin panel itself should live on a reserved
+    subdomain (e.g. admin.ivorydigital.uk or app.ivorydigital.uk) that is
+    NOT a tenant.
+
+Deliverable: a short "How to add a new client" checklist in the repo
+README covering the Hostinger DNS record + Nginx proxy host + SSL steps,
+plus what to enter in the platform panel.
+
+
+------------------------------------------------------------------------
+6. FEATURES TO CARRY OVER (EXACT SAME AS EXISTING APP)
+------------------------------------------------------------------------
+Everything below already exists in the reference repo and must be
+replicated per-tenant, unchanged in behaviour:
+
+PUBLIC BOOKING FLOW (per tenant, on their subdomain):
+  - Choose location/boutique (a tenant can have 1..N locations).
+  - Choose appointment type (name, duration, optional price).
+  - Calendar with closed/blocked days greyed out.
+  - Real availability slots (capacity, buffer time, notice hours,
+    max days ahead) — never offer an unavailable slot.
+  - Custom booking questions per location (incl. dropdowns like
+    "How did you hear about us?").
+  - Customer details + confirmation with reference number.
+  - Add-to-calendar (.ics) for the customer.
+  - Self-service: view / reschedule / cancel via reference.
+  - Waitlist / "notify me" when a day is full.
+  - Deposit / payments panel (see below).
+
+ADMIN DASHBOARD (per tenant):
+  - JWT login; optional TOTP 2FA (Google Authenticator).
+  - Dashboard stats (today's appointments, counts, per-location).
+  - Bookings management: search/filter by location & status; open detail;
+    confirm / complete / cancel / NO-SHOW; add admin notes; reschedule
+    (move date/time); mark deposit paid/unpaid.
+  - Recurring / multi-visit follow-up bookings (series linked by
+    series_id; slot-validated).
+  - Availability management: weekly opening hours per location; capacity
+    (concurrent appts); buffer/cleardown; block whole days or intra-day
+    ranges (holidays/lunch).
+  - Appointment types: create/edit; CUSTOM durations (any 5–600 mins,
+    plus quick-picks 30/60/90/120).
+  - Customise page: per-location photo, hours text, "what to expect",
+    booking questions, deposit amount + "deposit required" toggle.
+  - Customers directory + full history (group by email; past visits,
+    notes, answers like dress size).
+  - Analytics: busiest days, busiest times, bookings per location,
+    no-show rate, "where brides come from" (source), per-location filter.
+  - Admin management: company superadmin can add up to 4 admins with
+    granular permissions; superadmin account protected from deletion.
+  - Per-admin independent SMTP settings + business email.
+  - CSV export of bookings (incl. deposit + payment columns).
+  - iCal subscription feed per admin/tenant.
+
+EMAILS (per tenant, from their own SMTP once configured):
+  - Branded HTML emails with the TENANT'S logo (embedded inline).
+  - Booking received (customer) + new-booking alert (shop).
+  - Confirmed email. 24-hour reminder (background loop).
+  - "Deposit reported paid" heads-up to the boutique.
+  - All notifications default OFF until the tenant switches them on.
+
+PAYMENTS (per tenant) — MULTI-METHOD PICKER (up to 3):
+  - Tenant enables up to 3 of: PayPal.me link, Bank transfer,
+    Pay in person, PayPal card checkout.
+  - Each method reveals its own fields (PayPal.me URL; bank
+    name/sort code/account number; PayPal card needs API keys).
+  - Deposit amount set PER location; "deposit required" toggle.
+  - Customer chooses a method at checkout; "I've paid — notify the
+    boutique" for offline methods; admin marks paid.
+  - Booking payment_status: not_required | pending | pay_in_person | paid.
+  - PayPal card via PayPal REST v2 (httpx) reading keys from env
+    (per-tenant keys — see notes). Currency GBP by default.
+
+
+------------------------------------------------------------------------
+7. WHITE-LABEL / PER-TENANT BRANDING
+------------------------------------------------------------------------
+Move all branding out of hard-code into per-tenant settings:
+  - Company/brand name (replaces "Wife To Be" wordmark).
+  - Logo UPLOAD (used on public site, admin panel, and emails). Use
+    object storage / file upload; store URL on the tenant.
+  - Primary/accent colours + optional font choice (sensible defaults
+    matching the elegant look of the reference app).
+  - Public site copy (tagline, footer). The current footer credit
+    ("Site Designed and Hosted By Weddings By Mark") should be
+    configurable per platform (default to my credit, e.g. IvoryDigital).
+  - Booking-page boutique info cards, contact details, addresses — all
+    per tenant/location.
+Design language: keep the refined, luxury bridal aesthetic of the
+reference app as the DEFAULT theme; each tenant can override colours/logo.
+
+
+------------------------------------------------------------------------
+8. PLATFORM SUPERADMIN PANEL (NEW — the SaaS layer)
+------------------------------------------------------------------------
+- Secure login for me (platform owner), separate from tenant logins.
+- Companies list: name, subdomain, status (trial/active/expired/
+  suspended), trial days remaining, #locations, #bookings, created date.
+- Create company: name, subdomain (+ optional custom domain), owner admin
+  email + temp password (or invite), plan (default trial), trial length
+  (default 7 days), initial number of locations.
+- Actions per company: extend trial, convert to active, suspend/unsuspend,
+  reset owner password, (optional) impersonate for support, delete.
+- On create: auto-seed that tenant with 1 location + sensible defaults +
+  the standard booking questions, exactly like the reference app seeds a
+  shop — but scoped to the new tenant_id.
+
+
+------------------------------------------------------------------------
+9. DATA MODELS (extend the reference app's models with tenant_id)
+------------------------------------------------------------------------
+NEW:
+  Tenant/Company: { id, name, subdomain, custom_domain?, status,
+    plan, trial_started_at, trial_ends_at, branding:{ brand_name,
+    logo_url, primary_color, accent_color, font?, footer_credit },
+    created_at }
+  PlatformUser (me): { id, email, password_hash, role: "platform_superadmin",
+    totp_secret? }
+
+EXISTING (add tenant_id to every one):
+  Admin, Shop/Location, AppointmentType, Availability, Booking, Waitlist,
+  Settings, BlockedDates, Questions.
+  (Keep all existing fields: payments, deposits, series_id, answers,
+   payment_status, deposit_claimed, etc.)
+
+
+------------------------------------------------------------------------
+10. TECH STACK & CONVENTIONS (match reference app)
+------------------------------------------------------------------------
+  - Frontend: React (CRA) + Tailwind + shadcn/ui primitives + lucide-react
+    + sonner toasts. Named exports for components, default for pages.
+  - Backend: FastAPI + Motor (async MongoDB). ALL API routes prefixed /api.
+  - Auth: JWT; optional TOTP 2FA (pyotp + qrcode).
+  - Env only for URLs/secrets: frontend uses REACT_APP_BACKEND_URL;
+    backend uses MONGO_URL + DB_NAME. No hard-coded URLs/ports.
+  - Emails: smtplib + branded HTML (inline logo via CID).
+  - Payments: PayPal REST v2 via httpx. IMPORTANT: add every backend
+    dependency to BOTH requirements.txt AND requirements-docker.txt
+    (Docker image installs from requirements-docker.txt).
+  - data-testid on every interactive/important element.
+  - MongoDB: never return raw ObjectId; map _id->id (string).
+
+
+------------------------------------------------------------------------
+11. DEPLOYMENT (self-hosted, Docker/Dockge on TrueNAS)
+------------------------------------------------------------------------
+  - Docker Compose (Dockge-friendly) building frontend + backend from the
+    new GitHub repo build context, plus mongo + a nightly mongodump
+    backup container (keep the backup command on ONE line and escape
+    $$(date); retain ~30 days).
+  - Frontend Dockerfile: COPY package.json yarn.lock* ./ (lockfile
+    optional) to avoid build crashes.
+  - App served behind Nginx Proxy on TrueNAS; per-subdomain SSL
+    (Let's Encrypt). Nginx MUST forward the original Host header.
+  - Provide the "add a new client" checklist (DNS + proxy host + SSL +
+    platform-panel entry).
+  - Per-tenant PayPal card keys: support storing tenant PayPal
+    client_id/secret in tenant settings (encrypted/secured), OR document
+    a per-tenant env approach. PayPal.me + bank transfer + in-person need
+    no keys.
+
+
+------------------------------------------------------------------------
+12. HARD REQUIREMENTS / GUARDRAILS
+------------------------------------------------------------------------
+  - Absolute tenant data isolation — verify with tests that Tenant A can
+    never read/write Tenant B's data.
+  - Nothing from the reference app's feature set may be lost.
+  - Trial gating must not corrupt data — expired = locked, not deleted.
+  - Keep the elegant default theme; per-tenant branding overrides it.
+  - Everything configurable by me/tenant in-app — no code edits to
+    onboard a client.
+
+
+------------------------------------------------------------------------
+13. SUGGESTED BUILD PHASES
+------------------------------------------------------------------------
+  Phase 1: Tenant model + subdomain/Host resolution + query scoping +
+           platform superadmin panel (create/list/manage companies) +
+           per-tenant seed. Local tenant selection via ?tenant= for dev.
+  Phase 2: Port the full tenant admin + public booking flow from the
+           reference app, all scoped by tenant.
+  Phase 3: Trials (7-day) + status gating (trial/active/expired/suspended)
+           + trial banner + expiry screens.
+  Phase 4: White-label branding + logo upload + per-tenant emails/payments.
+  Phase 5: Docker/Dockge deploy config + Nginx/subdomain/SSL docs +
+           "add a client" checklist. Test isolation + trial logic + full
+           regression.
+
+
+------------------------------------------------------------------------
+14. FIRST MESSAGE TO THE NEW AGENT (suggested)
+------------------------------------------------------------------------
+"Build a multi-tenant SaaS booking platform per the attached brief.
+Study this reference repo for exact features/UI/API to replicate:
+https://github.com/valianktni1/wifetobeappointments.git . I am the
+platform superadmin; I onboard companies (tenants) with their own
+subdomain (manual DNS on Hostinger + Nginx proxy + per-host SSL on my
+TrueNAS — NO wildcard), a 7-day full-feature trial, and per-tenant
+white-label branding. Start with Phase 1 and confirm the plan first."
+
+========================================================================
+  END OF BRIEF
+========================================================================
