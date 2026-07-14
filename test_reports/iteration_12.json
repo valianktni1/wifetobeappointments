@@ -1,0 +1,23 @@
+{
+  "summary": "Verified SMTP encryption fix end-to-end. Backend: 8/8 pytest tests pass. Frontend: all new Email Settings fields render with data-testid, encryption dropdown auto-sets port (SSL=465, TLS=587), Send Test Email surfaces 400 auth-rejected messages from the mail server, Account page has smtp-encryption dropdown. Public booking still works with no SMTP configured (no crash).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_smtp_email.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is large (~1648 lines) — consider splitting into modules (auth, settings, bookings, email) for maintainability.",
+    "_smtp_send returns descriptive errors and correctly branches on ssl/tls/none — good fix.",
+    "Password masking on GET /api/settings works; sending '********' back preserves stored password (as documented)."
+  ],
+  "updated_files": ["/app/backend/tests/test_smtp_email.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "superadmin@wifetobe.co.uk / WifeToBe2026!",
+  "seed_data_creation": "None persisted. Settings reset to empty (business_email='', smtp_host='', smtp_user='', smtp_password='', smtp_encryption='tls', smtp_port=587). No test bookings with example.com emails remained.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "SMTP encryption fix fully verified. Root-cause proof confirmed: SSL(465) and TLS(587) paths against smtp.gmail.com with wrong credentials return HTTP 400 with auth-rejected message (proves encrypted connection succeeded). Invalid host returns HTTP 400 with descriptive connect error. No HTTP 500s observed. Per-admin Account page has smtp-encryption dropdown at /api/auth/my-email-settings/test.",
+  "rca of the issue": "Original bug: _smtp_send always called STARTTLS, so port-465 SSL hosts failed the handshake and reported a generic 'invalid' error. Fix (verified): _smtp_send now branches on smtp_encryption (ssl uses smtplib.SMTP_SSL directly on 465, tls uses SMTP+starttls on 587, none skips encryption) with auto-detect when port=465. Returns (ok, error) so real SMTP errors surface as HTTP 400. Confirmed via wrong-creds tests: gmail SSL/465 and TLS/587 both reach the auth stage and return specific 'username or password' error."
+}

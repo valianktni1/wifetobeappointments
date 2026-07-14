@@ -151,6 +151,16 @@ export default function Account() {
               </Field>
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
+              <Field label="Encryption">
+                <select className="input-wtb" value={email.smtp_encryption || "tls"} data-testid="smtp-encryption"
+                  onChange={(e) => { const enc = e.target.value; setEmail({ ...email, smtp_encryption: enc, smtp_port: enc === "ssl" ? 465 : 587 }); }}>
+                  <option value="tls">TLS (STARTTLS) — port 587</option>
+                  <option value="ssl">SSL — port 465</option>
+                  <option value="none">None</option>
+                </select>
+              </Field>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
               <Field label="SMTP Username">
                 <input className="input-wtb" value={email.smtp_user || ""} data-testid="smtp-user"
                   onChange={(e) => setEmail({ ...email, smtp_user: e.target.value })} placeholder="usually your email" />

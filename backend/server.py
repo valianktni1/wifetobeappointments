@@ -151,6 +151,7 @@ SETTINGS_DEFAULTS = {
     "smtp_port": 587,
     "smtp_user": "",
     "smtp_password": "",
+    "smtp_encryption": "tls",
     "from_name": "Wife To Be",
     "public_url": "",
     "feed_token": "",
@@ -235,10 +236,15 @@ def render_email(heading: str, paragraphs: List[str], cta: Optional[dict] = None
 </table></td></tr></table></body></html>"""
 
 
-def _smtp_send(cfg: dict, to: str, subject: str, body: str, html: Optional[str] = None) -> bool:
+def _smtp_send(cfg: dict, to: str, subject: str, body: str, html: Optional[str] = None):
+    """Returns (ok: bool, error: str). Honors encryption: ssl | tls | none (auto-detects 465=ssl)."""
     if not cfg or not cfg.get("smtp_host") or not cfg.get("from_addr"):
         logger.info("Email skipped (SMTP not configured): %s -> %s", subject, to)
-        return False
+        return False, "SMTP is not configured (host and from-address are required)."
+    port = int(cfg.get("smtp_port") or 587)
+    enc = (cfg.get("smtp_encryption") or "").lower()
+    if not enc:
+        enc = "ssl" if port == 465 else "tls"
     try:
         msg = EmailMessage()
         msg["Subject"] = subject
@@ -249,15 +255,33 @@ def _smtp_send(cfg: dict, to: str, subject: str, body: str, html: Optional[str] 
             msg.add_alternative(html, subtype="html")
             if _LOGO_BYTES:
                 msg.get_payload()[1].add_related(_LOGO_BYTES, "image", "png", cid="wtblogo")
-        with smtplib.SMTP(cfg["smtp_host"], int(cfg.get("smtp_port", 587)), timeout=15) as server:
-            server.starttls()
+        if enc == "ssl":
+            server = smtplib.SMTP_SSL(cfg["smtp_host"], port, timeout=20)
+        else:
+            server = smtplib.SMTP(cfg["smtp_host"], port, timeout=20)
+        try:
+            server.ehlo()
+            if enc == "tls":
+                server.starttls()
+                server.ehlo()
             if cfg.get("smtp_user"):
                 server.login(cfg["smtp_user"], cfg.get("smtp_password", ""))
             server.send_message(msg)
-        return True
+        finally:
+            try:
+                server.quit()
+            except Exception:
+                pass
+        return True, ""
+    except smtplib.SMTPAuthenticationError:
+        return False, "The mail server rejected your username or password. For Gmail/Outlook use an app password, and check the username is your full email address."
+    except smtplib.SMTPConnectError:
+        return False, f"Could not connect to {cfg['smtp_host']}:{port}. Check the host and port."
+    except smtplib.SMTPException as e:
+        return False, f"Mail server error: {e}"
     except Exception as e:
         logger.error("Email send failed: %s", e)
-        return False
+        return False, f"Could not send email: {e}. Check host, port and encryption (try SSL on 465 or TLS on 587)."
 
 
 def cfg_from_user(u: dict) -> Optional[dict]:
@@ -267,6 +291,7 @@ def cfg_from_user(u: dict) -> Optional[dict]:
             "smtp_port": u.get("smtp_port", 587),
             "smtp_user": u.get("smtp_user"),
             "smtp_password": u.get("smtp_password"),
+            "smtp_encryption": u.get("smtp_encryption") or "tls",
             "from_addr": u.get("sender_email") or u.get("email"),
             "from_name": u.get("sender_name") or "Wife To Be",
         }
@@ -280,6 +305,7 @@ def cfg_from_settings(s: dict) -> Optional[dict]:
             "smtp_port": s.get("smtp_port", 587),
             "smtp_user": s.get("smtp_user"),
             "smtp_password": s.get("smtp_password"),
+            "smtp_encryption": s.get("smtp_encryption") or "tls",
             "from_addr": s.get("business_email"),
             "from_name": s.get("from_name") or "Wife To Be",
         }
@@ -441,6 +467,7 @@ class SettingsIn(BaseModel):
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
+    smtp_encryption: Optional[str] = None
     from_name: Optional[str] = None
     public_url: Optional[str] = None
     notify_customer_on_booking: Optional[bool] = None
@@ -522,6 +549,7 @@ class MyEmailSettingsIn(BaseModel):
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
+    smtp_encryption: Optional[str] = None
     sender_email: Optional[EmailStr] = None
     sender_name: Optional[str] = None
 
@@ -537,6 +565,7 @@ async def get_my_email_settings(user: dict = Depends(get_current_user)):
         "smtp_port": user.get("smtp_port", 587),
         "smtp_user": user.get("smtp_user", ""),
         "smtp_password": "********" if user.get("smtp_password") else "",
+        "smtp_encryption": user.get("smtp_encryption") or "tls",
         "sender_email": user.get("sender_email", "") or user.get("email", ""),
         "sender_name": user.get("sender_name", "") or "Wife To Be",
     }
@@ -560,7 +589,7 @@ async def test_my_email_settings(body: TestEmailIn, user: dict = Depends(get_cur
     cfg = cfg_from_user(u)
     if not cfg:
         raise HTTPException(status_code=400, detail="Please save your SMTP host and details first")
-    ok = _smtp_send(cfg, body.to, "Wife To Be — test email",
+    ok, err = _smtp_send(cfg, body.to, "Wife To Be — test email",
                     f"This is a test email sent from your Wife To Be account ({cfg['from_addr']}).\n\n"
                     f"If you've received this, your outgoing email is configured correctly.",
                     html=render_email(
@@ -568,7 +597,7 @@ async def test_my_email_settings(body: TestEmailIn, user: dict = Depends(get_cur
                         [f"This is a test email sent from your Wife To Be account (<strong>{cfg['from_addr']}</strong>).",
                          "If you can see this beautifully formatted message, your outgoing email is configured correctly and ready to send booking notifications."]))
     if not ok:
-        raise HTTPException(status_code=400, detail="Could not send — please check your SMTP host, port, username and password")
+        raise HTTPException(status_code=400, detail=err)
     return {"ok": True}
 
 
@@ -1440,6 +1469,22 @@ async def write_settings(body: SettingsIn, user: dict = Depends(require_superadm
     return {"ok": True}
 
 
+@api.post("/settings/test-email")
+async def test_business_email(body: TestEmailIn, user: dict = Depends(require_superadmin)):
+    cfg = cfg_from_settings(await get_settings())
+    if not cfg:
+        raise HTTPException(status_code=400, detail="Please enter and save your Business Email + SMTP host first.")
+    ok, err = _smtp_send(cfg, body.to, "Wife To Be — test email",
+                    f"This is a test email sent from {cfg['from_addr']}.\n\nIf you've received this, your outgoing email is configured correctly.",
+                    html=render_email(
+                        "Your email is working",
+                        [f"This is a test email sent from <strong>{cfg['from_addr']}</strong>.",
+                         "If you can see this beautifully formatted message, your outgoing email is configured correctly and ready to send booking notifications."]))
+    if not ok:
+        raise HTTPException(status_code=400, detail=err)
+    return {"ok": True}
+
+
 # ------------------------------------------------------------------ seed + startup
 async def seed():
     await db.users.create_index("email", unique=True)
@@ -1574,7 +1619,7 @@ async def reminder_loop():
                                         f"<strong>{b['date']} at {b['start_time']}</strong>",
                                         f"Reference: <strong>{b['reference']}</strong>. We look forward to welcoming you."],
                                        cta={"url": murl, "label": "View My Appointment"} if murl else None))
-                        if sent:
+                        if sent[0]:
                             await db.bookings.update_one({"_id": b["_id"]}, {"$set": {"reminder_sent": True}})
         except Exception as e:
             logger.error("reminder loop error: %s", e)

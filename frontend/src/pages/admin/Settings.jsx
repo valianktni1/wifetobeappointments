@@ -5,11 +5,24 @@ import { PageHead, Panel, Field, Toggle } from "@/components/admin/ui";
 
 export default function Settings() {
   const [s, setS] = useState(null);
+  const [testTo, setTestTo] = useState("");
+  const [testing, setTesting] = useState(false);
 
-  useEffect(() => { api.get("/settings").then((r) => setS(r.data)).catch((e) => toast.error(apiErr(e))); }, []);
+  useEffect(() => { api.get("/settings").then((r) => { setS(r.data); setTestTo(r.data.business_email || ""); }).catch((e) => toast.error(apiErr(e))); }, []);
 
   const save = async () => {
     try { await api.put("/settings", s); toast.success("Settings saved"); } catch (e) { toast.error(apiErr(e)); }
+  };
+
+  const sendTest = async () => {
+    if (!testTo) { toast.error("Enter an email address to send the test to"); return; }
+    setTesting(true);
+    try {
+      await api.put("/settings", s);                 // save first so the test uses current values
+      await api.post("/settings/test-email", { to: testTo });
+      toast.success(`Test email sent to ${testTo} — check your inbox`);
+    } catch (e) { toast.error(apiErr(e)); }
+    finally { setTesting(false); }
   };
 
   if (!s) return <p className="eyebrow">Loading…</p>;
@@ -22,25 +35,52 @@ export default function Settings() {
 
       <div className="grid lg:grid-cols-2 gap-6">
         <Panel>
-          <h3 className="text-2xl mb-1">Business Email</h3>
-          <p className="font-sans-j text-sm mb-6" style={{ color: "var(--taupe)" }}>Generic address the app sends from. Configure SMTP to enable outgoing email.</p>
+          <h3 className="text-2xl mb-1">Email Settings</h3>
+          <p className="font-sans-j text-sm mb-6" style={{ color: "var(--taupe)" }}>Send booking emails from your own address. Fill this in, Save, then send a test to check it works.</p>
           <div className="space-y-5">
-            <Field label="From Name"><input className="input-wtb" value={s.from_name || ""} data-testid="set-from-name"
-              onChange={(e) => set({ from_name: e.target.value })} /></Field>
-            <Field label="Business Email"><input className="input-wtb" type="email" value={s.business_email || ""} data-testid="set-business-email"
-              onChange={(e) => set({ business_email: e.target.value })} placeholder="hello@wifetobe.co.uk" /></Field>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Sender Name"><input className="input-wtb" value={s.from_name || ""} data-testid="set-from-name"
+                onChange={(e) => set({ from_name: e.target.value })} placeholder="Wife To Be" /></Field>
+              <Field label="From Email"><input className="input-wtb" type="email" value={s.business_email || ""} data-testid="set-business-email"
+                onChange={(e) => set({ business_email: e.target.value })} placeholder="hello@wifetobe.co.uk" /></Field>
+            </div>
+            <Field label="SMTP Host"><input className="input-wtb" value={s.smtp_host || ""} data-testid="set-smtp-host"
+              onChange={(e) => set({ smtp_host: e.target.value })} placeholder="smtp.hostinger.com" /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Port"><input className="input-wtb" type="number" value={s.smtp_port || 587} data-testid="set-smtp-port"
+                onChange={(e) => set({ smtp_port: Number(e.target.value) })} /></Field>
+              <Field label="Encryption">
+                <select className="input-wtb" value={s.smtp_encryption || "tls"} data-testid="set-smtp-encryption"
+                  onChange={(e) => { const enc = e.target.value; set({ smtp_encryption: enc, smtp_port: enc === "ssl" ? 465 : 587 }); }}>
+                  <option value="tls">TLS (STARTTLS) — port 587</option>
+                  <option value="ssl">SSL — port 465</option>
+                  <option value="none">None</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="Username"><input className="input-wtb" value={s.smtp_user || ""} data-testid="set-smtp-user"
+              onChange={(e) => set({ smtp_user: e.target.value })} placeholder="usually your full email address" /></Field>
+            <Field label="Password"><input className="input-wtb" type="password" value={s.smtp_password || ""} data-testid="set-smtp-pass"
+              onChange={(e) => set({ smtp_password: e.target.value })} placeholder="mailbox / app password (case sensitive)" /></Field>
             <Field label="Public App URL (used in email links)"><input className="input-wtb" value={s.public_url || ""} data-testid="set-public-url"
               onChange={(e) => set({ public_url: e.target.value })} placeholder="https://appointments.wifetobe.co.uk" /></Field>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="SMTP Host"><input className="input-wtb" value={s.smtp_host || ""} data-testid="set-smtp-host"
-                onChange={(e) => set({ smtp_host: e.target.value })} placeholder="smtp.gmail.com" /></Field>
-              <Field label="SMTP Port"><input className="input-wtb" type="number" value={s.smtp_port || 587} data-testid="set-smtp-port"
-                onChange={(e) => set({ smtp_port: Number(e.target.value) })} /></Field>
+
+            <div className="border-t pt-5" style={{ borderColor: "var(--line)" }}>
+              <p className="field-label mb-2">Send a test email</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input className="input-wtb" type="email" value={testTo} data-testid="test-email-to"
+                  onChange={(e) => setTestTo(e.target.value)} placeholder="you@example.com" />
+                <button className="btn-wtb btn-gold whitespace-nowrap" onClick={sendTest} disabled={testing} data-testid="send-test-email">
+                  {testing ? "Sending…" : "Send Test Email"}
+                </button>
+              </div>
+              <ol className="font-sans-j text-xs mt-3 space-y-1 list-decimal list-inside" style={{ color: "var(--taupe)" }}>
+                <li>Enter your SMTP details above (password is case-sensitive).</li>
+                <li>Pick the right encryption — most hosts use SSL on 465 or TLS on 587.</li>
+                <li>Click "Send Test Email" — it saves your settings and emails you.</li>
+                <li>If it fails, the exact reason from the mail server is shown.</li>
+              </ol>
             </div>
-            <Field label="SMTP Username"><input className="input-wtb" value={s.smtp_user || ""} data-testid="set-smtp-user"
-              onChange={(e) => set({ smtp_user: e.target.value })} /></Field>
-            <Field label="SMTP Password / App Password"><input className="input-wtb" type="password" value={s.smtp_password || ""} data-testid="set-smtp-pass"
-              onChange={(e) => set({ smtp_password: e.target.value })} /></Field>
           </div>
         </Panel>
 
