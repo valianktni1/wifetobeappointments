@@ -199,12 +199,19 @@ except Exception:
     _LOGO_BYTES = None
 
 
-def render_email(heading: str, paragraphs: List[str], cta: Optional[dict] = None) -> str:
-    """Elegant, brand-matched HTML email with the Wife To Be wordmark."""
-    logo = ('<img src="cid:wtblogo" alt="Wife To Be" '
-            'style="max-width:230px;height:auto;margin:0 auto;display:block;">') if _LOGO_BYTES else \
-           ('<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:34px;'
-            'color:#b08d57;font-style:italic;">Wife To Be</div>')
+PLATFORM_BRAND = "Ivory Digital"
+
+
+def render_email(heading: str, paragraphs: List[str], cta: Optional[dict] = None,
+                 brand: str = "Wife To Be", tagline: str = "Bridal Appointments",
+                 signature: str = "With love, Wife To Be", footer_note: str = "Warrington &amp; Runcorn Boutiques",
+                 show_logo: bool = True) -> str:
+    """Elegant, brand-matched HTML email. Defaults to Wife To Be; pass brand for others."""
+    use_logo = show_logo and brand == "Wife To Be" and _LOGO_BYTES
+    header = ('<img src="cid:wtblogo" alt="Wife To Be" '
+              'style="max-width:230px;height:auto;margin:0 auto;display:block;">') if use_logo else \
+             (f'<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:34px;'
+              f'color:#b08d57;font-style:italic;">{brand}</div>')
     body_html = "".join(
         f'<p style="margin:0 0 16px;font-family:Georgia,serif;font-size:16px;line-height:1.7;color:#3d3833;">{p}</p>'
         for p in paragraphs
@@ -218,20 +225,22 @@ def render_email(heading: str, paragraphs: List[str], cta: Optional[dict] = None
             f'font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#fff;text-decoration:none;">'
             f'{cta.get("label","View")}</a></td></tr></table>'
         )
+    tagline_html = (f'<div style="font-family:Arial,sans-serif;font-size:10px;letter-spacing:3px;'
+                    f'text-transform:uppercase;color:#b08d57;margin-top:14px;">{tagline}</div>') if tagline else ""
     return f"""<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f7f3ee;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7f3ee;padding:32px 12px;">
 <tr><td align="center">
 <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border:1px solid #ece4d8;">
-<tr><td style="padding:38px 40px 10px;text-align:center;border-bottom:1px solid #ece4d8;">{logo}
-<div style="font-family:Arial,sans-serif;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#b08d57;margin-top:14px;">Bridal Appointments</div>
+<tr><td style="padding:38px 40px 10px;text-align:center;border-bottom:1px solid #ece4d8;">{header}
+{tagline_html}
 </td></tr>
 <tr><td style="padding:36px 40px 8px;">
 <h1 style="margin:0 0 22px;font-family:Georgia,serif;font-weight:normal;font-size:26px;color:#2a2521;">{heading}</h1>
 {body_html}{cta_html}
 </td></tr>
 <tr><td style="padding:22px 40px 34px;border-top:1px solid #ece4d8;text-align:center;">
-<p style="margin:0;font-family:Georgia,serif;font-size:15px;color:#b08d57;">With love, Wife To Be</p>
-<p style="margin:10px 0 0;font-family:Arial,sans-serif;font-size:10px;letter-spacing:1px;color:#b3aa9c;">Warrington &amp; Runcorn Boutiques</p>
+<p style="margin:0;font-family:Georgia,serif;font-size:15px;color:#b08d57;">{signature}</p>
+{f'<p style="margin:10px 0 0;font-family:Arial,sans-serif;font-size:10px;letter-spacing:1px;color:#b3aa9c;">{footer_note}</p>' if footer_note else ''}
 </td></tr>
 </table></td></tr></table></body></html>"""
 
@@ -1474,12 +1483,15 @@ async def test_business_email(body: TestEmailIn, user: dict = Depends(require_su
     cfg = cfg_from_settings(await get_settings())
     if not cfg:
         raise HTTPException(status_code=400, detail="Please enter and save your Business Email + SMTP host first.")
-    ok, err = _smtp_send(cfg, body.to, "Wife To Be — test email",
+    cfg = {**cfg, "from_name": PLATFORM_BRAND}
+    ok, err = _smtp_send(cfg, body.to, f"{PLATFORM_BRAND} — test email",
                     f"This is a test email sent from {cfg['from_addr']}.\n\nIf you've received this, your outgoing email is configured correctly.",
                     html=render_email(
                         "Your email is working",
                         [f"This is a test email sent from <strong>{cfg['from_addr']}</strong>.",
-                         "If you can see this beautifully formatted message, your outgoing email is configured correctly and ready to send booking notifications."]))
+                         "If you can see this, your outgoing email is configured correctly and ready to send notifications."],
+                        brand=PLATFORM_BRAND, tagline="Booking Platform",
+                        signature=PLATFORM_BRAND, footer_note="", show_logo=False))
     if not ok:
         raise HTTPException(status_code=400, detail=err)
     return {"ok": True}
