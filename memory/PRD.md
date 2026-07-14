@@ -51,6 +51,12 @@ Bridal boutique group (wifetobe.co.uk, hosted on Hostinger) wants a self-hosted 
 - Custom appointment durations: any 5–600 min (not just 30/60/90/120) via a custom minutes input.
 - Verified: iteration_10 (backend 14/14, frontend 100%, zero bugs). DB reset to clean state (method=off, deposits=0, 0 bookings).
 
+## Bug fix + UX (2026-07-14) — SMTP email "invalid" fix
+- **Root cause:** `_smtp_send` always used STARTTLS, so mail hosts requiring SSL on port 465 failed with a vague "invalid" error.
+- **Fix:** sender now honours an **Encryption** setting (TLS/SSL/None, auto-detects 465=SSL); returns the real mail-server error (auth rejected, connect failed, etc.) instead of a generic message.
+- **Settings 'Email Settings' panel rebuilt** to match the easier weddingsbymark layout: Sender Name, From Email, SMTP Host, Port, **Encryption dropdown** (auto-sets 465/587), Username, Password, and a **Send Test Email** box (saves then sends; shows the exact error on failure). Same Encryption option added to per-admin Account page.
+- New endpoint POST /api/settings/test-email (superadmin). Verified: iteration_12 (backend 8/8, frontend 100%; SSL/465 + TLS/587 connection paths proven against smtp.gmail.com). Settings reset to empty.
+
 ## Enhancements (2026-07-12) — Multi-method payments + fixes
 - **Multi-method payment picker:** superadmin enables UP TO 3 methods (PayPal.me, Bank transfer, Pay in person, PayPal card) in Settings; each reveals its own fields. Server + client cap at 3. `payment_methods` list added; legacy `payment_method` kept & auto-migrated via `_active_methods()`.
 - Bank transfer method shows account name / sort code / account number + reference at checkout; "I've paid — notify boutique" works for it too.
