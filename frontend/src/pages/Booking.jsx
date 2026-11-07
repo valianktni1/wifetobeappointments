@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   startOfToday, startOfMonth, endOfMonth, eachDayOfInterval, format,
   addMonths, isSameDay, isBefore, getDay,
@@ -61,7 +61,7 @@ function Stepper({ step }) {
 }
 
 function MonthCalendar({ selected, onSelect }) {
-  const [month, setMonth] = useState(startOfMonth(new Date()));
+  const [month, setMonth] = useState(() => startOfMonth(selected || new Date()));
   const today = startOfToday();
   const days = useMemo(() => eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) }), [month]);
   const leadEmpty = (getDay(startOfMonth(month)) + 6) % 7; // Mon-first
@@ -70,9 +70,9 @@ function MonthCalendar({ selected, onSelect }) {
     <div className="card-wtb p-6 max-w-md mx-auto" data-testid="booking-calendar">
       <div className="flex items-center justify-between mb-5">
         <button disabled={!canPrev} onClick={() => setMonth(addMonths(month, -1))}
-          className="p-2 disabled:opacity-25 hover:text-[var(--gold-deep)]" data-testid="cal-prev"><ChevronLeft size={18} /></button>
+          className="p-2 disabled:opacity-25 hover:text-[var(--gold-deep)]" aria-label="Previous month" data-testid="cal-prev"><ChevronLeft size={18} /></button>
         <span className="font-serif-c text-2xl">{format(month, "MMMM yyyy")}</span>
-        <button onClick={() => setMonth(addMonths(month, 1))} className="p-2 hover:text-[var(--gold-deep)]" data-testid="cal-next"><ChevronRight size={18} /></button>
+        <button onClick={() => setMonth(addMonths(month, 1))} className="p-2 hover:text-[var(--gold-deep)]" aria-label="Next month" data-testid="cal-next"><ChevronRight size={18} /></button>
       </div>
       <div className="grid grid-cols-7 gap-1 text-center mb-2">
         {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
@@ -86,6 +86,7 @@ function MonthCalendar({ selected, onSelect }) {
           const isSel = selected && isSameDay(d, selected);
           return (
             <button key={d.toISOString()} disabled={past} onClick={() => onSelect(d)}
+              aria-label={format(d, "EEEE d MMMM yyyy")} aria-pressed={!!isSel}
               data-testid={`cal-day-${format(d, "yyyy-MM-dd")}`}
               className="aspect-square flex items-center justify-center text-sm transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
               style={{
@@ -107,43 +108,91 @@ function MonthCalendar({ selected, onSelect }) {
 export default function Booking() {
   const [step, setStep] = useState(0);
   const [shops, setShops] = useState([]);
+  const [shopError, setShopError] = useState(false);
+  const [shopLoading, setShopLoading] = useState(true);
+  const [shopRetry, setShopRetry] = useState(0);
   const [shop, setShop] = useState(null);
   const [types, setTypes] = useState([]);
+  const [typeError, setTypeError] = useState(false);
+  const [typeRetry, setTypeRetry] = useState(0);
   const [type, setType] = useState(null);
   const [date, setDate] = useState(null);
   const [slots, setSlots] = useState(null);
+  const [slotError, setSlotError] = useState(false);
+  const [slotRetry, setSlotRetry] = useState(0);
   const [slot, setSlot] = useState(null);
   const [form, setForm] = useState({ customer_name: "", customer_email: "", customer_phone: "", notes: "" });
   const [answers, setAnswers] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(null);
   const [waitOpen, setWaitOpen] = useState(false);
+  const [waitSubmitting, setWaitSubmitting] = useState(false);
   const [waitDone, setWaitDone] = useState(false);
   const [payConfig, setPayConfig] = useState(null);
 
-  useEffect(() => { api.get("/shops").then((r) => setShops(r.data)).catch(() => {}); }, []);
+  const stepsRef = useRef(null);
+  const previousStep = useRef(step);
+  useEffect(() => {
+    if (previousStep.current !== step) {
+      stepsRef.current?.focus();
+      previousStep.current = step;
+    }
+  }, [step]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setShopLoading(true);
+    setShopError(false);
+    api.get("/shops", { signal: controller.signal })
+      .then(({ data }) => { if (!controller.signal.aborted) setShops(data); })
+      .catch(() => { if (!controller.signal.aborted) setShopError(true); })
+      .finally(() => { if (!controller.signal.aborted) setShopLoading(false); });
+    return () => controller.abort();
+  }, [shopRetry]);
   useEffect(() => { api.get("/payments/config").then((r) => setPayConfig(r.data)).catch(() => {}); }, []);
 
-  const pickShop = async (s) => {
-    setShop(s); setType(null); setDate(null); setSlot(null); setAnswers({});
-    try { const { data } = await api.get(`/shops/${s.id}/appointment-types`); setTypes(data); } catch { setTypes([]); }
-    setStep(1);
+  useEffect(() => {
+    if (step !== 1 || !shop) return;
+    const controller = new AbortController();
+    setTypes(null);
+    setTypeError(false);
+    api.get(`/shops/${shop.id}/appointment-types`, { signal: controller.signal })
+      .then(({ data }) => { if (!controller.signal.aborted) setTypes(data); })
+      .catch(() => { if (!controller.signal.aborted) setTypeError(true); });
+    return () => controller.abort();
+  }, [shop, step, typeRetry]);
+
+  useEffect(() => {
+    if (step !== 3 || !shop || !type || !date) return;
+    const controller = new AbortController();
+    setSlots(null);
+    setSlotError(false);
+    api.get("/public/slots", {
+      params: { shop_id: shop.id, date: format(date, "yyyy-MM-dd"), duration: type.duration },
+      signal: controller.signal,
+    })
+      .then(({ data }) => { if (!controller.signal.aborted) setSlots(data.slots); })
+      .catch(() => { if (!controller.signal.aborted) setSlotError(true); });
+    return () => controller.abort();
+  }, [shop, type, date, step, slotRetry]);
+
+  const pickShop = (s) => {
+    setShop(s); setTypes(null); setType(null); setDate(null); setSlot(null); setAnswers({}); setStep(1);
   };
   const pickType = (t) => { setType(t); setDate(null); setSlot(null); setStep(2); };
-  const pickDate = async (d) => {
+  const pickDate = (d) => {
     setDate(d); setSlot(null); setSlots(null); setStep(3); setWaitOpen(false); setWaitDone(false);
-    try {
-      const { data } = await api.get("/public/slots", { params: { shop_id: shop.id, date: format(d, "yyyy-MM-dd"), duration: type.duration } });
-      setSlots(data.slots);
-    } catch { setSlots([]); }
   };
   const pickSlot = (t) => { setSlot(t); setStep(4); };
 
-  const joinWaitlist = async () => {
-    if (!form.customer_name || !form.customer_email || !form.customer_phone) {
+  const joinWaitlist = async (event) => {
+    event.preventDefault();
+    if (waitSubmitting) return;
+    if (!form.customer_name.trim() || !form.customer_email.trim() || !form.customer_phone.trim()) {
       toast.error("Please add your name, email and phone to join the waitlist.");
       return;
     }
+    setWaitSubmitting(true);
     try {
       await api.post("/public/waitlist", {
         shop_id: shop.id, appointment_type_id: type?.id, date: date ? format(date, "yyyy-MM-dd") : null,
@@ -151,10 +200,13 @@ export default function Booking() {
       });
       setWaitDone(true); setWaitOpen(false);
     } catch (e) { toast.error(apiErr(e)); }
+    finally { setWaitSubmitting(false); }
   };
 
-  const submit = async () => {
-    if (!form.customer_name || !form.customer_email || !form.customer_phone) {
+  const submit = async (event) => {
+    event.preventDefault();
+    if (submitting) return;
+    if (!form.customer_name.trim() || !form.customer_email.trim() || !form.customer_phone.trim()) {
       toast.error("Please complete your name, email and phone.");
       return;
     }
@@ -169,11 +221,17 @@ export default function Booking() {
     try {
       const { data } = await api.post("/public/bookings", {
         shop_id: shop.id, appointment_type_id: type.id, date: format(date, "yyyy-MM-dd"),
-        start_time: slot, ...form, answers: answerList,
+        start_time: slot, ...form, customer_name: form.customer_name.trim(),
+        customer_email: form.customer_email.trim(), customer_phone: form.customer_phone.trim(), answers: answerList,
       });
       setConfirmed(data);
     } catch (e) {
-      toast.error(apiErr(e));
+      if (e.response?.status === 409) {
+        toast.error("That time has just gone. Please choose another time. We’ve kept your details.");
+        setSlot(null); setSlots(null); setStep(3);
+      } else {
+        toast.error(apiErr(e));
+      }
     } finally { setSubmitting(false); }
   };
 
@@ -207,7 +265,7 @@ export default function Booking() {
               <a className="btn-wtb btn-ghost-wtb" data-testid="gcal-link" target="_blank" rel="noreferrer"
                 href={gcalUrl(confirmed)}>Add to Google Calendar</a>
               <a className="btn-wtb btn-ghost-wtb" data-testid="ics-link"
-                href={`${process.env.REACT_APP_BACKEND_URL}/api/public/bookings/${confirmed.reference}/calendar.ics`}>Download .ics</a>
+                href={`${process.env.REACT_APP_BACKEND_URL || ""}/api/public/bookings/${confirmed.reference}/calendar.ics`}>Download .ics</a>
             </div>
             <button className="btn-wtb btn-gold" onClick={() => window.location.reload()} data-testid="book-another">Book Another</button>
             <a href={`/booking/${confirmed.reference}`} className="block mt-5 eyebrow hover:opacity-70" style={{ fontSize: "0.6rem", color: "var(--gold-deep)" }} data-testid="manage-link">Manage or reschedule this booking →</a>
@@ -222,7 +280,7 @@ export default function Booking() {
     <div className="min-h-screen flex flex-col" style={{ background: "var(--ivory)" }}>
       <Header />
       {/* Hero */}
-      <section className="relative h-[320px] md:h-[420px] flex items-center justify-center overflow-hidden">
+      <section className="relative h-[210px] md:h-[340px] flex items-center justify-center overflow-hidden">
         <img src={HERO} alt="Bride in an elegant designer wedding gown" className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(42,37,33,.35), rgba(42,37,33,.55))" }} />
         <div className="relative text-center px-6 reveal-up">
@@ -234,7 +292,7 @@ export default function Booking() {
         </div>
       </section>
 
-      <main className="flex-1 w-full max-w-5xl mx-auto px-6 py-16 md:py-20">
+      <main className="flex-1 w-full max-w-5xl mx-auto px-6 py-10 md:py-16" ref={stepsRef} tabIndex={-1} aria-label="Book an appointment">
         <Stepper step={step} />
 
         {step === 0 && (
@@ -244,6 +302,9 @@ export default function Booking() {
               <h2 className="text-4xl md:text-5xl mt-3">Choose Your Boutique</h2>
               <GoldRule className="mx-auto mt-5" />
             </div>
+            {shopError ? <LoadError message="We couldn’t load the boutiques." onRetry={() => setShopRetry((n) => n + 1)} /> :
+              shopLoading ? <p role="status" className="text-center">Loading boutiques…</p> :
+              shops.length === 0 && <p role="status" className="text-center">No boutiques are taking online bookings right now.</p>}
             <div className="grid md:grid-cols-2 gap-6">
               {shops.map((s) => (
                 <button key={s.id} onClick={() => pickShop(s)} data-testid={`shop-${s.slug}`}
@@ -273,8 +334,10 @@ export default function Booking() {
               <h2 className="text-4xl md:text-5xl mt-3">Select An Appointment</h2>
               <GoldRule className="mx-auto mt-5" />
             </div>
+            {typeError ? <LoadError message="We couldn’t load the appointment types." onRetry={() => setTypeRetry((n) => n + 1)} /> :
+              types === null && <p role="status" className="text-center">Loading appointment types…</p>}
             <div className="grid sm:grid-cols-2 gap-5 max-w-3xl mx-auto">
-              {types.map((t) => (
+              {types?.map((t) => (
                 <button key={t.id} onClick={() => pickType(t)} data-testid={`type-${t.id}`}
                   className="card-wtb p-7 text-left transition-transform hover:-translate-y-1 duration-300 group">
                   <div className="flex items-center justify-between mb-2">
@@ -284,7 +347,7 @@ export default function Booking() {
                   <p className="font-sans-j text-sm" style={{ color: "var(--taupe)", fontWeight: 300 }}>{t.description}</p>
                 </button>
               ))}
-              {types.length === 0 && <p className="font-sans-j text-center col-span-2" style={{ color: "var(--taupe)" }}>No appointment types available.</p>}
+              {types?.length === 0 && <p className="font-sans-j text-center col-span-2" style={{ color: "var(--taupe)" }}>No appointment types available.</p>}
             </div>
             <div className="text-center mt-10"><button className="btn-wtb btn-ghost-wtb" onClick={back} data-testid="back-btn">← Back</button></div>
           </div>
@@ -309,7 +372,8 @@ export default function Booking() {
               <h2 className="text-4xl md:text-5xl mt-3">Choose A Time</h2>
               <GoldRule className="mx-auto mt-5" />
             </div>
-            {slots === null && <p className="text-center eyebrow">Finding availability…</p>}
+            {slotError ? <LoadError message="We couldn’t check availability." onRetry={() => setSlotRetry((n) => n + 1)} /> :
+              slots === null && <p role="status" className="text-center eyebrow">Finding availability…</p>}
             {slots && slots.length === 0 && (
               <div className="max-w-md mx-auto text-center">
                 <p className="font-sans-j mb-6" style={{ color: "var(--taupe)" }}>
@@ -320,20 +384,20 @@ export default function Booking() {
                 ) : !waitOpen ? (
                   <button className="btn-wtb btn-gold" onClick={() => setWaitOpen(true)} data-testid="open-waitlist">Join the Waitlist</button>
                 ) : (
-                  <div className="card-wtb p-6 text-left space-y-4" data-testid="waitlist-form">
+                  <form className="card-wtb p-6 text-left space-y-4" data-testid="waitlist-form" onSubmit={joinWaitlist}>
                     {[
                       { k: "customer_name", l: "Full Name", t: "text" },
                       { k: "customer_email", l: "Email", t: "email" },
                       { k: "customer_phone", l: "Phone", t: "tel" },
                     ].map((f) => (
                       <div key={f.k}>
-                        <label className="field-label block mb-2">{f.l}</label>
-                        <input className="input-wtb" type={f.t} value={form[f.k]} data-testid={`wait-${f.k}`}
+                        <label className="field-label block mb-2" htmlFor={`wait-${f.k}`}>{f.l}</label>
+                        <input id={`wait-${f.k}`} required className="input-wtb" type={f.t} value={form[f.k]} data-testid={`wait-${f.k}`}
                           onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} />
                       </div>
                     ))}
-                    <button className="btn-wtb btn-gold w-full" onClick={joinWaitlist} data-testid="submit-waitlist">Join Waitlist</button>
-                  </div>
+                    <button type="submit" className="btn-wtb btn-gold w-full" disabled={waitSubmitting} data-testid="submit-waitlist">{waitSubmitting ? "Joining…" : "Join Waitlist"}</button>
+                  </form>
                 )}
               </div>
             )}
@@ -350,12 +414,12 @@ export default function Booking() {
                 ))}
               </div>
             )}
-            <div className="text-center mt-10"><button className="btn-wtb btn-ghost-wtb" onClick={back} data-testid="back-btn">← Back</button></div>
+            <div className="text-center mt-10"><button className="btn-wtb btn-ghost-wtb" onClick={back} disabled={waitSubmitting} data-testid="back-btn">← Choose another date</button></div>
           </div>
         )}
 
         {step === 4 && (
-          <div className="reveal-up max-w-2xl mx-auto">
+          <form className="reveal-up max-w-2xl mx-auto" onSubmit={submit}>
             <div className="text-center mb-12">
               <Eyebrow>Almost There</Eyebrow>
               <h2 className="text-4xl md:text-5xl mt-3">Your Details</h2>
@@ -369,49 +433,49 @@ export default function Booking() {
             </div>
             <div className="space-y-5">
               {[
-                { k: "customer_name", l: "Full Name", ph: "Your name", type: "text" },
-                { k: "customer_email", l: "Email Address", ph: "you@email.com", type: "email" },
-                { k: "customer_phone", l: "Phone Number", ph: "07…", type: "tel" },
+                { k: "customer_name", l: "Full Name", auto: "name", ph: "Your name", type: "text" },
+                { k: "customer_email", l: "Email Address", auto: "email", ph: "you@email.com", type: "email" },
+                { k: "customer_phone", l: "Phone Number", auto: "tel", ph: "07…", type: "tel" },
               ].map((f) => (
                 <div key={f.k}>
-                  <label className="field-label block mb-2">{f.l}</label>
-                  <input className="input-wtb" type={f.type} placeholder={f.ph} value={form[f.k]}
+                  <label className="field-label block mb-2" htmlFor={f.k}>{f.l}</label>
+                  <input id={f.k} autoComplete={f.auto} required className="input-wtb" type={f.type} placeholder={f.ph} value={form[f.k]}
                     data-testid={`input-${f.k}`}
                     onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} />
                 </div>
               ))}
               <div>
-                <label className="field-label block mb-2">Notes (optional)</label>
-                <textarea className="input-wtb" rows={3} placeholder="Anything you'd like us to know…" value={form.notes}
+                <label className="field-label block mb-2" htmlFor="booking-notes">Notes (optional)</label>
+                <textarea id="booking-notes" className="input-wtb" rows={3} placeholder="Anything you'd like us to know…" value={form.notes}
                   data-testid="input-notes"
                   onChange={(e) => setForm({ ...form, notes: e.target.value })} />
               </div>
               {(shop?.questions || []).map((q) => (
                 <div key={q.id} data-testid={`question-field-${q.id}`}>
-                  <label className="field-label block mb-2">{q.label}{q.required ? " *" : ""}</label>
+                  <label className="field-label block mb-2" htmlFor={`booking-question-${q.id}`}>{q.label}{q.required ? " *" : ""}</label>
                   {q.type === "textarea" ? (
-                    <textarea className="input-wtb" rows={2} value={answers[q.id] || ""}
+                    <textarea id={`booking-question-${q.id}`} required={q.required} className="input-wtb" rows={2} value={answers[q.id] || ""}
                       onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
                   ) : q.type === "select" ? (
-                    <select className="input-wtb" value={answers[q.id] || ""}
+                    <select id={`booking-question-${q.id}`} required={q.required} className="input-wtb" value={answers[q.id] || ""}
                       onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}>
                       <option value="">Please choose…</option>
                       {(q.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>
                   ) : (
-                    <input className="input-wtb" type={q.type === "date" ? "date" : "text"} value={answers[q.id] || ""}
+                    <input id={`booking-question-${q.id}`} required={q.required} className="input-wtb" type={q.type === "date" ? "date" : "text"} value={answers[q.id] || ""}
                       onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} />
                   )}
                 </div>
               ))}
             </div>
             <div className="flex items-center justify-between mt-10">
-              <button className="btn-wtb btn-ghost-wtb" onClick={back} data-testid="back-btn">← Back</button>
-              <button className="btn-wtb btn-gold" onClick={submit} disabled={submitting} data-testid="submit-booking">
+              <button type="button" className="btn-wtb btn-ghost-wtb" onClick={back} disabled={submitting} data-testid="back-btn">← Back</button>
+              <button type="submit" className="btn-wtb btn-gold" disabled={submitting} data-testid="submit-booking">
                 {submitting ? "Submitting…" : "Request Appointment"}
               </button>
             </div>
-          </div>
+          </form>
         )}
       </main>
 
@@ -420,6 +484,15 @@ export default function Booking() {
         <p className="eyebrow mt-3" style={{ fontSize: "0.58rem" }}>Warrington · Runcorn · Widnes · St Helens · Liverpool</p>
       </footer>
       <DesignerCredit />
+    </div>
+  );
+}
+
+function LoadError({ message, onRetry }) {
+  return (
+    <div role="alert" className="text-center space-y-3 mb-5">
+      <p>{message}</p>
+      <button className="btn-wtb btn-ghost-wtb" onClick={onRetry}>Try again</button>
     </div>
   );
 }
